@@ -5,33 +5,64 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Middleware
 app.use(express.json());
-// Gunakan process.cwd() agar Vercel dapat mendeteksi file statis di root
-app.use(express.static(path.join(process.cwd())));
+app.use(express.static(path.join(__dirname)));
 
-// API Endpoint Pemadaman Listrik
+// API Endpoint Pemadaman Listrik (/api/power)
 app.get('/api/power', (req, res) => {
-  const filePath = path.join(process.cwd(), 'post.json');
-  
-  fs.readFile(filePath, 'utf8', (err, data) => {
-    if (err) {
-      console.error('Gagal membaca post.json:', err);
-      return res.status(500).json({ error: 'Gagal membaca database post.json', details: err.message });
-    }
+  // Daftar jalur alternatif untuk mencari post.json agar aman di Vercel & Lokal
+  const possiblePaths = [
+    path.join(process.cwd(), 'post.json'),
+    path.join(__dirname, 'post.json'),
+    path.resolve('post.json')
+  ];
+
+  let rawData = null;
+  let foundPath = '';
+
+  // Cari file di jalur-jalur yang tersedia
+  for (const filePath of possiblePaths) {
     try {
-      const jsonData = JSON.parse(data);
-      res.json(jsonData);
-    } catch (parseErr) {
-      console.error('Format JSON tidak valid:', parseErr);
-      res.status(500).json({ error: 'Format JSON pada post.json tidak valid' });
+      if (fs.existsSync(filePath)) {
+        rawData = fs.readFileSync(filePath, 'utf8');
+        foundPath = filePath;
+        break;
+      }
+    } catch (e) {
+      // Abaikan dan coba jalur berikutnya
     }
-  });
+  }
+
+  // Jika file sama sekali tidak ditemukan
+  if (!rawData) {
+    console.error('DATABASE ERROR: post.json tidak ditemukan di semua path:', possiblePaths);
+    return res.status(404).json({ 
+      error: 'Database post.json tidak ditemukan di server.',
+      pathsChecked: possiblePaths 
+    });
+  }
+
+  // Parse isi JSON
+  try {
+    const jsonData = JSON.parse(rawData);
+    res.setHeader('Content-Type', 'application/json');
+    return res.status(200).json(jsonData);
+  } catch (parseErr) {
+    console.error('PARSE ERROR: Format JSON post.json tidak valid:', parseErr.message);
+    return res.status(500).json({ 
+      error: 'Format JSON pada post.json tidak valid.',
+      details: parseErr.message 
+    });
+  }
 });
 
+// Jalankan server lokal jika file dipanggil langsung (bukan sebagai serverless)
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`Server berjalan di http://localhost:${PORT}`);
+    console.log(`Server lokal aktif di http://localhost:${PORT}`);
   });
 }
 
+// Wajib diexport untuk Vercel Serverless Function
 module.exports = app;
