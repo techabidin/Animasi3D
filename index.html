@@ -246,7 +246,7 @@
   <div id="dashStats" class="dashboard-view">
     <div class="inner-dash-container">
       <div class="dash-header-title">Statistik Pemantauan (BMKG & Kode Pos Pemadaman)</div>
-      <div class="dash-header-sub">Ringkasan aktivitas seismik BMKG dan status jaringan listrik berbasis Kode Pos Kabupaten/Kota se-Indonesia.</div>
+      <div class="dash-header-sub">Ringkasan aktivitas seismik BMKG dan status jaringan listrik berbasis Kode Pos Kabupaten/Kota se-Jawa Timur.</div>
       
       <div class="stats-grid">
         <div class="stat-card">
@@ -255,9 +255,9 @@
           <div class="stat-desc">Sumber: BMKG + EMSC</div>
         </div>
         <div class="stat-card" style="border-left-color: #f59e0b;">
-          <div class="stat-title">Kode Pos Terdata (Nasional)</div>
+          <div class="stat-title">Kode Pos Terdata (API)</div>
           <div class="stat-value" id="statTotalOutages" style="color:#f59e0b;">0</div>
-          <div class="stat-desc">Sumber: Express API (/api/power)</div>
+          <div class="stat-desc">Sumber: /api/power (post.js)</div>
         </div>
         <div class="stat-card">
           <div class="stat-title">Status Detektor Real-Time</div>
@@ -302,8 +302,8 @@
   <!-- DASHBOARD 4: RADAR PEMADAMAN LISTRIK KODE POS API -->
   <div id="dashPower" class="dashboard-view">
     <div class="inner-dash-container">
-      <div class="dash-header-title">Radar Pemadaman Listrik Kode Pos (API Backend)</div>
-      <div class="dash-header-sub">Ketik Kode Pos atau Nama Kecamatan yang dipanggil melalui API Express Vercel.</div>
+      <div class="dash-header-title">Radar Pemadaman Listrik Kode Pos API</div>
+      <div class="dash-header-sub">Ketik Kode Pos atau Nama Kecamatan (Contoh: 68126 / Patrang / Sanankulon) untuk mendeteksi status pemadaman listrik.</div>
       
       <div id="powerWrapper">
         <div class="power-search-bar">
@@ -314,8 +314,8 @@
         <div class="radar-status-bar">
           <div class="radar-status-dot" style="background:#f59e0b;box-shadow:0 0 10px #f59e0b;"></div>
           <div>
-            <strong>Power Grid API:</strong> 
-            <span>Terhubung API Express (<span id="powerSecCounter">0</span>d lalu)</span>
+            <strong>Power Grid API (/api/power):</strong> 
+            <span>Terhubung (<span id="powerSecCounter">0</span>d lalu)</span>
           </div>
         </div>
       </div>
@@ -393,8 +393,6 @@
     var powerMapInitialized = false;
     
     var liveQuakeData = [];
-
-    // DATABASE PEMADAMAN LISTRIK DIKOSONGKAN, DIAMBIL MELALUI API Express (/api/power)
     var powerOutageDatabase = [];
 
     var secondsSinceUpdate = 0;
@@ -493,20 +491,8 @@
         if (!response.ok) throw new Error('Gagal mengambil data dari API backend.');
         var data = await response.json();
 
-        powerOutageDatabase = data.map(function(item, index) {
-          return {
-            code: String(item.code || item.kode_pos || ''),
-            district: item.district || item.kecamatan || 'Kecamatan',
-            city: item.city || item.kabupaten || 'Kabupaten/Kota',
-            lat: parseFloat(item.lat || (-7.8 - (index * 0.005) % 3)),
-            lng: parseFloat(item.lng || (112.5 + (index * 0.005) % 3)),
-            status: item.status || 'Normal',
-            durasi: item.durasi || 'Sistem Optimal',
-            level: item.level || 'Normal'
-          };
-        });
-
-        console.log('Berhasil memuat ' + powerOutageDatabase.length + ' data dari Express API');
+        powerOutageDatabase = data;
+        console.log('Berhasil memuat ' + powerOutageDatabase.length + ' data dari Express API (/api/power)');
       } catch (err) {
         console.warn('Gagal memuat API /api/power:', err);
         powerOutageDatabase = [

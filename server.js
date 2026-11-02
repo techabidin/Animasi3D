@@ -1,33 +1,27 @@
 const express = require('express');
 const path = require('path');
+const powerData = require('./post.js'); // Memuat langsung dari modul JS
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Menyajikan file statis dari folder yang sama dengan server.js
+// Menyajikan file statis frontend (index.html, dll)
 app.use(express.static(__dirname));
 
-// Endpoint API Pemadaman Listrik
+// API Endpoint Pemadaman Listrik
 app.get('/api/power', (req, res) => {
   try {
-    delete require.cache[require.resolve('./post.json')];
-    const jsonData = require('./post.json');
     res.setHeader('Content-Type', 'application/json');
-    return res.status(200).json(jsonData);
+    return res.status(200).json(powerData);
   } catch (err) {
-    console.error('ERROR BACA POST.JSON:', err);
-    return res.status(500).json({ error: 'Gagal memuat database post.json', details: err.message });
+    console.error('ERROR API POWER:', err);
+    return res.status(500).json({ error: 'Gagal memuat data pemadaman', details: err.message });
   }
 });
 
 // Route utama untuk melayani index.html
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
-
-// Fallback untuk route lainnya
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
