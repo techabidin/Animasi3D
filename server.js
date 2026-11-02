@@ -1,35 +1,40 @@
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware JSON
 app.use(express.json());
-app.use(express.static(path.join(__dirname)));
 
-// API Endpoint Pemadaman Listrik
+// Menyajikan file statis dari folder yang sama dengan server.js
+app.use(express.static(__dirname));
+
+// Endpoint API Pemadaman Listrik
 app.get('/api/power', (req, res) => {
-  const filePath = path.join(__dirname, 'post.json');
-  
-  fs.readFile(filePath, 'utf8', (err, data) => {
-    if (err) {
-      return res.status(500).json({ error: 'Gagal membaca database post.json' });
-    }
-    try {
-      const jsonData = JSON.parse(data);
-      res.json(jsonData);
-    } catch (parseErr) {
-      res.status(500).json({ error: 'Format JSON pada post.json tidak valid' });
-    }
-  });
+  try {
+    delete require.cache[require.resolve('./post.json')];
+    const jsonData = require('./post.json');
+    res.setHeader('Content-Type', 'application/json');
+    return res.status(200).json(jsonData);
+  } catch (err) {
+    console.error('ERROR BACA POST.JSON:', err);
+    return res.status(500).json({ error: 'Gagal memuat database post.json', details: err.message });
+  }
 });
 
-// Jalankan server lokal jika diakses langsung
+// Route utama untuk melayani index.html
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Fallback untuk route lainnya
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`Server berjalan di http://localhost:${PORT}`);
+    console.log(`Server lokal aktif di http://localhost:${PORT}`);
   });
 }
 
