@@ -8,9 +8,9 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
 
-// Koordinat pusat riil untuk beberapa kecamatan/wilayah di Jawa Timur sebagai acuan presisi
+// Kamus Koordinat Spesifik Berdasarkan Nama Kecamatan di Jawa Timur
 const districtCoordinates = {
-  // Jember
+  // === KABUPATEN JEMBER ===
   "Patrang": { lat: -8.1689, lng: 113.7022 },
   "Sumbersari": { lat: -8.1721, lng: 113.7228 },
   "Kaliwates": { lat: -8.1736, lng: 113.6791 },
@@ -43,7 +43,7 @@ const districtCoordinates = {
   "Sumberjambe": { lat: -8.0314, lng: 113.9214 },
   "Ledokombo": { lat: -8.1114, lng: 113.8914 },
 
-  // Bangkalan
+  // === KABUPATEN BANGKALAN ===
   "Bangkalan": { lat: -7.0250, lng: 112.7419 },
   "Burneh": { lat: -7.0514, lng: 112.7714 },
   "Arosbaya": { lat: -6.9414, lng: 112.7614 },
@@ -63,7 +63,7 @@ const districtCoordinates = {
   "Blega": { lat: -7.1114, lng: 113.1114 },
   "Konang": { lat: -7.0214, lng: 113.0614 },
 
-  // Banyuwangi
+  // === KABUPATEN BANYUWANGI ===
   "Banyuwangi": { lat: -8.2192, lng: 114.3691 },
   "Kalipuro": { lat: -8.1514, lng: 114.3914 },
   "Giri": { lat: -8.1814, lng: 114.3614 },
@@ -90,7 +90,7 @@ const districtCoordinates = {
   "Pesanggaran": { lat: -8.5514, lng: 114.0714 },
   "Siliragung": { lat: -8.4814, lng: 114.1214 },
 
-  // Blitar
+  // === KABUPATEN BLITAR ===
   "Sanankulon": { lat: -8.0814, lng: 112.1114 },
   "Srengat": { lat: -8.0814, lng: 112.0614 },
   "Ponggok": { lat: -8.0514, lng: 112.1514 },
@@ -110,10 +110,50 @@ const districtCoordinates = {
   "Kesamben": { lat: -8.1314, lng: 112.4214 },
   "Selorejo": { lat: -8.1114, lng: 112.4814 },
   "Binangun": { lat: -8.2114, lng: 112.4414 },
-  "Wates": { lat: -8.2014, lng: 112.3914 }
+  "Wates": { lat: -8.2014, lng: 112.3914 },
+
+  // === KOTA SURABAYA ===
+  "Sukolilo": { lat: -7.2854, lng: 112.7952 },
+  "Mulyorejo": { lat: -7.2654, lng: 112.7852 },
+  "Bulak": { lat: -7.2354, lng: 112.7852 },
+  "Kenjeran": { lat: -7.2354, lng: 112.7652 },
+  "Tambaksari": { lat: -7.2454, lng: 112.7552 },
+  "Simokerto": { lat: -7.2454, lng: 112.7452 },
+  "Semampir": { lat: -7.2254, lng: 112.7452 },
+  "Pabean Cantian": { lat: -7.2254, lng: 112.7352 },
+  "Bubutan": { lat: -7.2454, lng: 112.7352 },
+  "Krembangan": { lat: -7.2354, lng: 112.7252 },
+  "Asem Rowo": { lat: -7.2454, lng: 112.7052 },
+  "Tandes": { lat: -7.2554, lng: 112.6852 },
+  "Sukomanunggal": { lat: -7.2654, lng: 112.7052 },
+  "Benowo": { lat: -7.2454, lng: 112.6552 },
+  "Pakal": { lat: -7.2354, lng: 112.6252 },
+  "Lakarsantri": { lat: -7.3054, lng: 112.6652 },
+  "Sambikerep": { lat: -7.2754, lng: 112.6652 },
+  "Karang Pilang": { lat: -7.3254, lng: 112.7152 },
+  "Dukuh Pakis": { lat: -7.2954, lng: 112.7152 },
+  "Wiyung": { lat: -7.3154, lng: 112.6952 },
+  "Gayungan": { lat: -7.3254, lng: 112.7352 },
+  "Jambangan": { lat: -7.3254, lng: 112.7252 },
+  "Wonocolo": { lat: -7.3154, lng: 112.7452 },
+  "Wonokromo": { lat: -7.2954, lng: 112.7452 },
+  "Sawahan": { lat: -7.2654, lng: 112.7252 },
+  "Tegalsari": { lat: -7.2754, lng: 112.7352 },
+  "Genteng": { lat: -7.2554, lng: 112.7452 },
+  "Gubeng": { lat: -7.2754, lng: 112.7552 },
+  "Tenggilis Mejoyo": { lat: -7.3254, lng: 112.7552 },
+  "Rungkut": { lat: -7.3154, lng: 112.7852 },
+  "Gunung Anyar": { lat: -7.3354, lng: 112.7952 },
+
+  // === KOTA MALANG ===
+  "Klojen": { lat: -7.9786, lng: 112.6295 },
+  "Blimbing": { lat: -7.9543, lng: 112.6412 },
+  "Kedungkandang": { lat: -8.0012, lng: 112.6534 },
+  "Lowokwaru": { lat: -7.9482, lng: 112.6175 },
+  "Sukun": { lat: -8.0054, lng: 112.6123 }
 };
 
-// Default koordinat fallback per kabupaten jika kecamatan tidak terdaftar di atas
+// Titik Fallback per Kabupaten/Kota jika nama kecamatan belum terdaftar
 const cityDefaults = {
   "Jember": { lat: -8.1844, lng: 113.7024 },
   "Bangkalan": { lat: -7.0250, lng: 112.7419 },
@@ -148,12 +188,12 @@ app.get('/api/power', (req, res) => {
       const defaultCoord = cityDefaults[cleanCityName] || { lat: -7.8, lng: 112.5 };
 
       items.forEach((item, idx) => {
-        // Ambil koordinat spesifik kecamatan jika ada, jika tidak pakai pusat kota/kabupaten
+        // Ambil titik persis berdasarkan nama kecamatan
         const baseCoord = districtCoordinates[item.kecamatan] || defaultCoord;
 
-        // Berikan variasi kecil agar titik-titik dalam satu kecamatan tidak bertumpuk pas di satu titik yang sama
-        const angle = idx * 1.5;
-        const radius = 0.003 + ((idx % 3) * 0.002);
+        // Jitter mikro agar kode pos berbeda dalam satu kecamatan tidak bertumpuk pas di 1 titik
+        const angle = idx * 2.0;
+        const radius = 0.001 + ((idx % 4) * 0.0015);
         const lat = baseCoord.lat + (Math.sin(angle) * radius);
         const lng = baseCoord.lng + (Math.cos(angle) * radius);
 
