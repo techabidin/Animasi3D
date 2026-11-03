@@ -6,7 +6,48 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-app.use(express.static(__dirname));
+
+// ========================================
+// BLOKIR FILE BACKEND AGAR TIDAK TERBUKA
+// ========================================
+
+const blockedFiles = [
+    "/server.js",
+    "/post.js",
+    "/package.json",
+    "/package-lock.json",
+    "/.env",
+    "/.git"
+];
+
+app.use((req, res, next) => {
+    const requestedPath = decodeURIComponent(req.path);
+
+    if (
+        blockedFiles.includes(requestedPath) ||
+        requestedPath.startsWith("/.git/") ||
+        requestedPath.startsWith("/node_modules/")
+    ) {
+        return res.status(403).json({
+            error: "Akses ditolak"
+        });
+    }
+
+    next();
+});
+
+// ========================================
+// FILE FRONTEND TETAP DI ROOT
+// ========================================
+
+app.use(express.static(__dirname, {
+    dotfiles: "deny",
+    index: false
+}));
+
+// ========================================
+// MEMBACA DATABASE POSTAL
+// ========================================
 
 function loadPostalData() {
     const filePath = require.resolve("./post.js");
@@ -22,6 +63,10 @@ function loadPostalData() {
     return data;
 }
 
+// ========================================
+// NORMALISASI TEKS
+// ========================================
+
 function normalize(value) {
     return String(value || "")
         .trim()
@@ -29,7 +74,11 @@ function normalize(value) {
         .replace(/\s+/g, " ");
 }
 
-// Membaca database tanpa mengubah kecamatan atau kode pos.
+// ========================================
+// MEMBACA SEMUA DATA KODE POS
+// TANPA MENGUBAH NAMA KECAMATAN
+// ========================================
+
 function getAllPostalRecords() {
     const database = loadPostalData();
     const records = [];
@@ -38,6 +87,8 @@ function getAllPostalRecords() {
         if (!Array.isArray(daftar)) continue;
 
         for (const item of daftar) {
+            if (!item || typeof item !== "object") continue;
+
             const kodePos = String(item.kode_pos || "").trim();
             const kecamatan = String(item.kecamatan || "").trim();
 
@@ -48,8 +99,10 @@ function getAllPostalRecords() {
             records.push({
                 code: kodePos,
                 kode_pos: kodePos,
+
                 district: kecamatan,
                 kecamatan: kecamatan,
+
                 city: wilayah,
                 wilayah: wilayah
             });
@@ -59,8 +112,10 @@ function getAllPostalRecords() {
     return records;
 }
 
-// Validasi data: mendeteksi kode pos yang sama tetapi
-// terdaftar pada kecamatan berbeda dalam wilayah yang sama.
+// ========================================
+// VALIDASI DATA KODE POS
+// ========================================
+
 function validatePostalData() {
     const records = getAllPostalRecords();
     const grouped = new Map();
@@ -93,7 +148,10 @@ function validatePostalData() {
     };
 }
 
-// API utama
+// ========================================
+// API UTAMA PETA
+// ========================================
+
 app.get("/api/power", (req, res) => {
     try {
         const records = getAllPostalRecords();
@@ -101,16 +159,19 @@ app.get("/api/power", (req, res) => {
         const result = records.map((item, index) => ({
             ...item,
 
-            // Status ini hanya simulasi.
-            status: ["NORMAL", "GANGGUAN", "PEMELIHARAAN"][
-                index % 3
-            ],
+            // Status simulasi, bukan data resmi PLN.
+            status: [
+                "NORMAL",
+                "GANGGUAN",
+                "PEMELIHARAAN"
+            ][index % 3],
 
             durasi: "0 menit",
             level: "INFO"
         }));
 
         res.json(result);
+
     } catch (error) {
         console.error("API error:", error);
 
@@ -121,10 +182,19 @@ app.get("/api/power", (req, res) => {
     }
 });
 
-// API untuk mencari kode pos
+// ========================================
+// API PENCARIAN KODE POS
+// ========================================
+
 app.get("/api/postal/:kode", (req, res) => {
     try {
         const kode = String(req.params.kode).trim();
+
+        if (!/^\d{5}$/.test(kode)) {
+            return res.status(400).json({
+                error: "Kode pos harus terdiri dari 5 angka"
+            });
+        }
 
         const results = getAllPostalRecords().filter(
             item => item.code === kode
@@ -135,14 +205,21 @@ app.get("/api/postal/:kode", (req, res) => {
             ditemukan: results.length > 0,
             data: results
         });
+
     } catch (error) {
+        console.error("Postal search error:", error);
+
         res.status(500).json({
             error: error.message
         });
     }
 });
 
-// API daftar kecamatan berdasarkan kabupaten/kota
+// ========================================
+// API DAFTAR KECAMATAN
+// BERDASARKAN KABUPATEN/KOTA
+// ========================================
+
 app.get("/api/kecamatan", (req, res) => {
     try {
         const records = getAllPostalRecords();
@@ -173,37 +250,74 @@ app.get("/api/kecamatan", (req, res) => {
         }
 
         res.json(Object.values(grouped));
+
     } catch (error) {
+        console.error("Kecamatan API error:", error);
+
         res.status(500).json({
             error: error.message
         });
     }
 });
 
-// API validasi database
+// ========================================
+// API VALIDASI DATABASE
+// ========================================
+
 app.get("/api/postal-check", (req, res) => {
     try {
         res.json(validatePostalData());
+
     } catch (error) {
+        console.error("Postal check error:", error);
+
         res.status(500).json({
             error: error.message
         });
     }
 });
 
-// Halaman utama
-app.get(/.*/, (req, res) => {
+// ========================================
+// HALAMAN UTAMA
+// INDEX.HTML TETAP DI ROOT
+// ========================================
+
+app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "index.html"));
 });
 
+// ========================================
+// HALAMAN TIDAK DITEMUKAN
+// ========================================
+
+app.use((req, res) => {
+    res.status(404).json({
+        error: "Halaman atau endpoint tidak ditemukan"
+    });
+});
+
+// ========================================
+// MENJALANKAN SERVER
+// ========================================
+
 if (require.main === module) {
     app.listen(PORT, "0.0.0.0", () => {
-        console.log(`Server berjalan di http://localhost:${PORT}`);
+        console.log("--------------------------------");
+        console.log("ABIDINAI SERVER BERJALAN");
+        console.log("--------------------------------");
 
-        const check = validatePostalData();
+        console.log(`Server: http://localhost:${PORT}`);
+        console.log(`Frontend: ${path.join(__dirname, "index.html")}`);
 
-        console.log(`Total kode pos: ${check.total_data}`);
-        console.log(`Konflik data: ${check.total_konflik}`);
+        try {
+            const check = validatePostalData();
+
+            console.log(`Total kode pos: ${check.total_data}`);
+            console.log(`Konflik data: ${check.total_konflik}`);
+
+        } catch (error) {
+            console.error("Database error:", error.message);
+        }
     });
 }
 
