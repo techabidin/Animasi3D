@@ -1,4 +1,3 @@
-
 const express = require("express");
 const path = require("path");
 
@@ -6,21 +5,41 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, "public")));
 
 function loadPostalData() {
-    const filePath = require.resolve("./post.js");
-
-    delete require.cache[filePath];
-
-    const data = require(filePath);
-
-    if (!data || typeof data !== "object" || Array.isArray(data)) {
-        throw new Error("Format post.js tidak valid");
-    }
-
-    return data;
+    delete require.cache[require.resolve("./post.js")];
+    return require("./post.js");
 }
+
+// Koordinat berikut adalah contoh titik kecamatan.
+// Lengkapi dengan koordinat dari sumber peta yang tepercaya.
+const districtCoordinates = [
+    {
+        city: "Kabupaten Jember",
+        district: "Patrang",
+        lat: -8.157,
+        lng: 113.704
+    },
+    {
+        city: "Kabupaten Jember",
+        district: "Balung",
+        lat: -8.283,
+        lng: 113.538
+    },
+    {
+        city: "Kabupaten Jember",
+        district: "Puger",
+        lat: -8.372,
+        lng: 113.474
+    },
+    {
+        city: "Kabupaten Jember",
+        district: "Ambulu",
+        lat: -8.345,
+        lng: 113.605
+    }
+];
 
 function normalize(value) {
     return String(value || "")
@@ -29,182 +48,100 @@ function normalize(value) {
         .replace(/\s+/g, " ");
 }
 
-// Membaca database tanpa mengubah kecamatan atau kode pos.
-function getAllPostalRecords() {
-    const database = loadPostalData();
-    const records = [];
+function findCoordinates(city, district) {
+    return districtCoordinates.find(item =>
+        normalize(item.city) === normalize(city) &&
+        normalize(item.district) === normalize(district)
+    );
+}
 
-    for (const [wilayah, daftar] of Object.entries(database)) {
-        if (!Array.isArray(daftar)) continue;
+app.get("/api/postal", (req, res) => {
+    try {
+        const data = loadPostalData();
+        const result = [];
 
-        for (const item of daftar) {
-            const kodePos = String(item.kode_pos || "").trim();
-            const kecamatan = String(item.kecamatan || "").trim();
+        for (const [city, entries] of Object.entries(data)) {
+            for (const item of entries) {
+                const location = findCoordinates(
+                    city,
+                    item.kecamatan
+                );
 
-            if (!/^\d{5}$/.test(kodePos) || !kecamatan) {
-                continue;
+                result.push({
+                    city,
+                    kecamatan: item.kecamatan,
+                    kode_pos: String(item.kode_pos),
+                    lat: location ? location.lat : null,
+                    lng: location ? location.lng : null,
+                    matched: Boolean(location)
+                });
             }
-
-            records.push({
-                code: kodePos,
-                kode_pos: kodePos,
-                district: kecamatan,
-                kecamatan: kecamatan,
-                city: wilayah,
-                wilayah: wilayah
-            });
         }
-    }
-
-    return records;
-}
-
-// Validasi data: mendeteksi kode pos yang sama tetapi
-// terdaftar pada kecamatan berbeda dalam wilayah yang sama.
-function validatePostalData() {
-    const records = getAllPostalRecords();
-    const grouped = new Map();
-
-    for (const item of records) {
-        const key = `${normalize(item.city)}:${item.code}`;
-
-        if (!grouped.has(key)) {
-            grouped.set(key, new Set());
-        }
-
-        grouped.get(key).add(normalize(item.district));
-    }
-
-    const conflicts = [];
-
-    for (const [key, districts] of grouped.entries()) {
-        if (districts.size > 1) {
-            conflicts.push({
-                wilayah_dan_kode: key,
-                kecamatan_terdaftar: [...districts]
-            });
-        }
-    }
-
-    return {
-        total_data: records.length,
-        total_konflik: conflicts.length,
-        konflik: conflicts
-    };
-}
-
-// API utama
-app.get("/api/power", (req, res) => {
-    try {
-        const records = getAllPostalRecords();
-
-        const result = records.map((item, index) => ({
-            ...item,
-
-            // Status ini hanya simulasi.
-            status: ["NORMAL", "GANGGUAN", "PEMELIHARAAN"][
-                index % 3
-            ],
-
-            durasi: "0 menit",
-            level: "INFO"
-        }));
-
-        res.json(result);
-    } catch (error) {
-        console.error("API error:", error);
-
-        res.status(500).json({
-            error: "Gagal membaca database kode pos",
-            detail: error.message
-        });
-    }
-});
-
-// API untuk mencari kode pos
-app.get("/api/postal/:kode", (req, res) => {
-    try {
-        const kode = String(req.params.kode).trim();
-
-        const results = getAllPostalRecords().filter(
-            item => item.code === kode
-        );
 
         res.json({
-            kode_pos: kode,
-            ditemukan: results.length > 0,
-            data: results
+            success: true,
+            total: result.length,
+            matched: result.filter(x => x.matched).length,
+            unmatched: result.filter(x => !x.matched).length,
+            data: result
         });
     } catch (error) {
+        console.error(error);
         res.status(500).json({
-            error: error.message
+            success: false,
+            message: "Gagal membaca data kode pos."
         });
     }
 });
 
-// API daftar kecamatan berdasarkan kabupaten/kota
-app.get("/api/kecamatan", (req, res) => {
+app.get("/api/postal/search", (req, res) => {
+    const keyword = normalize(req.query.q);
+
+    if (!keyword) {
+        return res.json({ success: true, data: [] });
+    }
+
     try {
-        const records = getAllPostalRecords();
-        const wilayah = req.query.wilayah;
+        const data = loadPostalData();
+        const result = [];
 
-        const filtered = wilayah
-            ? records.filter(
-                item => normalize(item.city) === normalize(wilayah)
-            )
-            : records;
+        for (const [city, entries] of Object.entries(data)) {
+            for (const item of entries) {
+                if (
+                    normalize(item.kode_pos).includes(keyword) ||
+                    normalize(item.kecamatan).includes(keyword) ||
+                    normalize(city).includes(keyword)
+                ) {
+                    const location = findCoordinates(
+                        city,
+                        item.kecamatan
+                    );
 
-        const grouped = {};
-
-        for (const item of filtered) {
-            const key = `${item.city}|${item.district}`;
-
-            if (!grouped[key]) {
-                grouped[key] = {
-                    wilayah: item.city,
-                    kecamatan: item.district,
-                    kode_pos: []
-                };
-            }
-
-            if (!grouped[key].kode_pos.includes(item.code)) {
-                grouped[key].kode_pos.push(item.code);
+                    result.push({
+                        city,
+                        kecamatan: item.kecamatan,
+                        kode_pos: String(item.kode_pos),
+                        lat: location ? location.lat : null,
+                        lng: location ? location.lng : null,
+                        matched: Boolean(location)
+                    });
+                }
             }
         }
 
-        res.json(Object.values(grouped));
+        res.json({ success: true, data: result });
     } catch (error) {
         res.status(500).json({
-            error: error.message
+            success: false,
+            message: "Pencarian gagal."
         });
     }
 });
 
-// API validasi database
-app.get("/api/postal-check", (req, res) => {
-    try {
-        res.json(validatePostalData());
-    } catch (error) {
-        res.status(500).json({
-            error: error.message
-        });
-    }
+app.get("*", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// Halaman utama
-app.get(/.*/, (req, res) => {
-    res.sendFile(path.join(__dirname, "index.html"));
+app.listen(PORT, () => {
+    console.log(`AbidinAI Map berjalan di http://localhost:${PORT}`);
 });
-
-if (require.main === module) {
-    app.listen(PORT, "0.0.0.0", () => {
-        console.log(`Server berjalan di http://localhost:${PORT}`);
-
-        const check = validatePostalData();
-
-        console.log(`Total kode pos: ${check.total_data}`);
-        console.log(`Konflik data: ${check.total_konflik}`);
-    });
-}
-
-module.exports = app;
