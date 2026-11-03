@@ -460,6 +460,67 @@
       startRealtimeDetectors();
     }
 
+    // Helper khusus data kode pos dan kecamatan dari /api/power.
+    // Nama dan koordinat marker selalu berasal dari baris data API yang sama.
+    function normalizePostalText(value) {
+      return String(value == null ? '' : value)
+        .normalize('NFKC')
+        .trim()
+        .toLocaleLowerCase('id-ID')
+        .replace(/\s+/g, ' ');
+    }
+
+    function escapePostalHTML(value) {
+      return String(value == null ? '-' : value).replace(/[&<>"']/g, function(char) {
+        return {
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;'
+        }[char];
+      });
+    }
+
+    function getPostalField(item, names) {
+      for (var i = 0; i < names.length; i++) {
+        var value = item[names[i]];
+        if (value !== undefined && value !== null && String(value).trim() !== '') {
+          return value;
+        }
+      }
+      return '';
+    }
+
+    function normalizePowerRecord(item) {
+      if (!item || typeof item !== 'object') return null;
+
+      var code = String(getPostalField(item, ['code', 'kode_pos', 'kodePos', 'postal_code', 'postalCode'])).trim();
+      var district = String(getPostalField(item, ['district', 'kecamatan', 'nama_kecamatan', 'namaKecamatan'])).trim();
+      var city = String(getPostalField(item, ['city', 'kabupaten', 'kota', 'kabupaten_kota', 'nama_kabupaten', 'namaKota'])).trim();
+      var lat = Number(getPostalField(item, ['lat', 'latitude']));
+      var lng = Number(getPostalField(item, ['lng', 'lon', 'longitude', 'long']));
+
+      // Jangan membuat lokasi buatan. Data tanpa kode pos, kecamatan,
+      // kabupaten/kota, atau koordinat valid tidak ditampilkan di peta.
+      if (!code || !district || !city || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return null;
+      }
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+
+      return {
+        code: code,
+        district: district,
+        city: city,
+        lat: lat,
+        lng: lng,
+        status: String(getPostalField(item, ['status']) || 'Tidak diketahui'),
+        durasi: String(getPostalField(item, ['durasi', 'keterangan', 'description']) || '-'),
+        level: String(getPostalField(item, ['level', 'tingkat']) || 'Normal'),
+        source: item
+      };
+    }
+
     // Initialize Leaflet Power Outage Map (Memanggil API /api/power)
     function initPowerMap() {
       var osmStandard = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -468,17 +529,14 @@
       });
 
       powerMap = L.map('livePowerMap', {
-        center: [-7.8, 112.5], 
+        center: [-7.8, 112.5],
         zoom: 8,
         layers: [osmStandard]
       });
 
       powerMarkersLayer = L.layerGroup().addTo(powerMap);
-
-      // Ambil data melalui Express API
       loadPowerDataFromAPI();
 
-      // Hook tombol pencarian kode pos
       document.getElementById('btnSearchPostal').onclick = executePostalSearch;
       document.getElementById('postalSearchInput').addEventListener('keydown', function(e) {
         if (e.key === 'Enter') executePostalSearch();
@@ -486,42 +544,112 @@
     }
 
     async function loadPowerDataFromAPI() {
-      try {
-        var response = await fetch('/api/power');
-        if (!response.ok) throw new Error('Gagal mengambil data dari API backend.');
-        var data = await response.json();
+      var totalElem = document.getElementById('statTotalOutages');
 
-        powerOutageDatabase = data;
-        console.log('Berhasil memuat ' + powerOutageDatabase.length + ' data dari Express API (/api/power)');
+      try {
+        var response = await fetch('/api/power', {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+          cache: 'no-store'
+        });
+
+        if (!response.ok) {
+          throw new Error('API /api/power mengembalikan HTTP ' + response.status);
+        }
+
+        var result = await response.json();
+        var rows = Array.isArray(result) ? result :
+          (result && Array.isArray(result.data) ? result.data :
+          (result && Array.isArray(result.records) ? result.records :
+          (result && Array.isArray(result.results) ? result.results : null)));
+
+        if (!rows) {
+          throw new Error('Format API tidak sesuai. API harus mengirim array data atau objek { data: [...] }.');
+        }
+
+        powerOutageDatabase = rows.map(normalizePowerRecord).filter(Boolean);
+
+        console.log(
+          'Data kode pos valid:',
+          powerOutageDatabase.length,
+          'dari',
+          rows.length,
+          'baris API /api/power'
+        );
+
+        if (rows.length && !powerOutageDatabase.length) {
+          console.warn('Data API diterima, tetapi tidak ada baris dengan kode pos, kecamatan, kabupaten/kota, serta koordinat valid.');
+        }
       } catch (err) {
-        console.warn('Gagal memuat API /api/power:', err);
-        powerOutageDatabase = [
-          { code: '68126', district: 'Sumbersari (Fallback)', city: 'Jember', lat: -8.1689, lng: 113.7022, status: 'Normal', durasi: 'Sistem Optimal', level: 'Normal' }
-        ];
+        console.error('Gagal memuat data kode pos dari /api/power:', err);
+        // Tidak menggunakan fallback/koordinat tebakan agar nama kecamatan
+        // dan titik peta tidak menyesatkan.
+        powerOutageDatabase = [];
       }
 
       renderPowerMarkers();
-      var totalElem = document.getElementById('statTotalOutages');
       if (totalElem) totalElem.textContent = powerOutageDatabase.length;
     }
 
     function executePostalSearch() {
-      var input = document.getElementById('postalSearchInput').value.trim().toLowerCase();
+      var rawInput = document.getElementById('postalSearchInput').value;
+      var input = normalizePostalText(rawInput);
       if (!input) return;
 
+      // Kode pos dicari secara exact terlebih dahulu agar tidak tertukar
+      // dengan kode pos lain yang memiliki sebagian angka sama.
       var match = powerOutageDatabase.find(function(item) {
-        return item.code === input || item.district.toLowerCase().indexOf(input) >= 0 || item.city.toLowerCase().indexOf(input) >= 0;
+        return normalizePostalText(item.code) === input;
       });
+
+      // Jika bukan kode pos, cocokkan nama kecamatan secara exact,
+      // lalu kecamatan sebagian, kabupaten/kota exact, kemudian sebagian.
+      if (!match) {
+        match = powerOutageDatabase.find(function(item) {
+          return normalizePostalText(item.district) === input;
+        });
+      }
+      if (!match) {
+        match = powerOutageDatabase.find(function(item) {
+          return normalizePostalText(item.district).indexOf(input) !== -1;
+        });
+      }
+      if (!match) {
+        match = powerOutageDatabase.find(function(item) {
+          return normalizePostalText(item.city) === input;
+        });
+      }
+      if (!match) {
+        match = powerOutageDatabase.find(function(item) {
+          return normalizePostalText(item.city).indexOf(input) !== -1;
+        });
+      }
 
       if (match && powerMap) {
         powerMap.setView([match.lat, match.lng], 13, { animate: true });
+
+        var popupOpened = false;
         powerMarkersLayer.eachLayer(function(layer) {
           if (layer.options && layer.options.postalCode === match.code) {
             layer.openPopup();
+            popupOpened = true;
           }
         });
+
+        if (!popupOpened) {
+          // Marker mungkin belum selesai dirender; render ulang dari record API.
+          renderPowerMarkers();
+          powerMarkersLayer.eachLayer(function(layer) {
+            if (layer.options && layer.options.postalCode === match.code) {
+              layer.openPopup();
+            }
+          });
+        }
       } else {
-        alert('Kode Pos / Kecamatan / Kota "' + input + '" tidak ditemukan.');
+        alert(
+          'Kode pos / kecamatan / kabupaten "' + rawInput.trim() +
+          '" tidak ditemukan pada data API. Pastikan data tersebut tersedia di /api/power.'
+        );
       }
     }
 
@@ -681,7 +809,10 @@
       powerMarkersLayer.clearLayers();
 
       powerOutageDatabase.forEach(function(p) {
-        var color = p.level === 'Padam' ? '#ef4444' : (p.level === 'Siaga' ? '#f59e0b' : '#10b981');
+        var level = normalizePostalText(p.level);
+        var color = level === 'padam' ? '#ef4444' :
+          (level === 'siaga' ? '#f59e0b' : '#10b981');
+
         var circle = L.circleMarker([p.lat, p.lng], {
           radius: 8,
           fillColor: color,
@@ -692,19 +823,32 @@
           postalCode: p.code
         });
 
+        var safeCode = escapePostalHTML(p.code);
+        var safeDistrict = escapePostalHTML(p.district);
+        var safeCity = escapePostalHTML(p.city);
+        var safeStatus = escapePostalHTML(p.status);
+        var safeDuration = escapePostalHTML(p.durasi);
+        var safeLevel = escapePostalHTML(p.level);
+
+        var levelBackground = level === 'padam' ? '#fef2f2' :
+          (level === 'siaga' ? '#fffbeb' : '#ecfdf5');
+        var levelColor = level === 'padam' ? '#991b1b' :
+          (level === 'siaga' ? '#b45309' : '#065f46');
+
         var popupHtml = '<div style="color:#111;font-size:0.85rem;min-width:200px;">' +
           '<b style="color:#2563eb;font-size:0.95rem;">⚡ Status Listrik (API)</b><br>' +
-          '<b>Kode Pos:</b> <span style="background:#e0e7ff;padding:2px 6px;border-radius:4px;font-weight:700;">' + p.code + '</span><br>' +
-          '<b>Kecamatan:</b> ' + p.district + ' (' + p.city + ')<br>' +
-          '<b>Status:</b> ' + p.status + '<br>' +
-          '<b>Keterangan:</b> ' + p.durasi + '<br>' +
-          '<div style="margin-top:5px;padding:4px 8px;background:' + (p.level==='Padam'?'#fef2f2':(p.level==='Siaga'?'#fffbeb':'#ecfdf5')) + ';border-radius:4px;color:' + (p.level==='Padam'?'#991b1b':(p.level==='Siaga'?'#b45309':'#065f46')) + ';font-weight:600;font-size:0.75rem;">Status: ' + p.level.toUpperCase() + '</div>' +
+          '<b>Kode Pos:</b> <span style="background:#e0e7ff;padding:2px 6px;border-radius:4px;font-weight:700;">' + safeCode + '</span><br>' +
+          '<b>Kecamatan:</b> ' + safeDistrict + '<br>' +
+          '<b>Kabupaten/Kota:</b> ' + safeCity + '<br>' +
+          '<b>Status:</b> ' + safeStatus + '<br>' +
+          '<b>Keterangan:</b> ' + safeDuration + '<br>' +
+          '<div style="margin-top:5px;padding:4px 8px;background:' + levelBackground + ';border-radius:4px;color:' + levelColor + ';font-weight:600;font-size:0.75rem;">Status: ' + safeLevel.toUpperCase() + '</div>' +
           '</div>';
 
         circle.bindPopup(popupHtml);
         powerMarkersLayer.addLayer(circle);
 
-        if (p.level === 'Padam' || p.level === 'Siaga') {
+        if (level === 'padam' || level === 'siaga') {
           var outagePulse = L.divIcon({
             className: 'custom-outage-ripple',
             html: '<div class="seismic-ripple" style="border-color:' + color + ';background:' + color + '44;"></div>',
