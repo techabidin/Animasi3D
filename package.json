@@ -1,15 +1,12 @@
 {
-  "name": "abidinai-radar-pemadaman",
-  "version": "2.1.0",
-  "private": true,
+  "name": "bumi-3d-explorer",
+  "version": "1.0.0",
+  "description": "Bumi 3D Explorer - Radar Gempa BMKG & Radar Listrik Kode Pos",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
-  "engines": {
-    "node": ">=18"
-  },
   "dependencies": {
-    "express": "^4.21.2"
+    "express": "^4.19.2"
   }
 }
