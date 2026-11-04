@@ -302,8 +302,8 @@
   <!-- DASHBOARD 4: RADAR PEMADAMAN LISTRIK KODE POS API -->
   <div id="dashPower" class="dashboard-view">
     <div class="inner-dash-container">
-      <div class="dash-header-title">Peta Validasi Kode Pos Indonesia</div>
-      <div class="dash-header-sub">Cari kode pos atau kecamatan. Sistem mencocokkan database wilayah dan mencari titik pusat kecamatan untuk ditampilkan di peta.</div>
+      <div class="dash-header-title">Radar Pemadaman Listrik Indonesia</div>
+      <div class="dash-header-sub">Pantau laporan listrik padam berdasarkan kode pos, desa/kelurahan, kecamatan, kabupaten/kota, dan provinsi. Data laporan komunitas bukan konfirmasi resmi PLN.</div>
       
       <div id="powerWrapper">
         <div class="power-search-bar">
@@ -314,8 +314,8 @@
         <div class="radar-status-bar">
           <div class="radar-status-dot" style="background:#f59e0b;box-shadow:0 0 10px #f59e0b;"></div>
           <div>
-            <strong>Validasi Kode Pos:</strong> 
-            <span id="powerSecCounter">Menunggu database</span>
+            <strong>Radar Nasional:</strong> 
+            <span id="powerSecCounter">Memuat data wilayah dan laporan...</span>
           </div>
         </div>
       </div>
@@ -477,6 +477,8 @@
 
       // Ambil data melalui Express API
       loadPowerDataFromAPI();
+      // Perbarui feed laporan setiap 60 detik.
+      setInterval(loadPowerDataFromAPI, 60000);
 
       // Hook tombol pencarian kode pos
       document.getElementById('btnSearchPostal').onclick = executePostalSearch;
@@ -489,10 +491,13 @@
       try {
         var response = await fetch('/api/power');
         if (!response.ok) throw new Error('HTTP ' + response.status);
-        var data = await response.json();
-        powerOutageDatabase = Array.isArray(data) ? data : [];
-        console.log('Database kode pos dimuat:', powerOutageDatabase.length);
-        setPowerStatus('Database kode pos berhasil dimuat');
+        var payload = await response.json();
+        powerOutageDatabase = Array.isArray(payload) ? payload : (Array.isArray(payload.data) ? payload.data : []);
+        console.log('Database kode pos dimuat:', powerOutageDatabase.length, payload.meta || {});
+        var active = powerOutageDatabase.filter(function(x) { return /PADAM|OUTAGE|BLACKOUT/.test(String(x.status || '').toUpperCase()); }).length;
+        var meta = payload.meta || {};
+        setPowerStatus(powerOutageDatabase.length.toLocaleString('id-ID') + ' data kode pos • ' + active + ' laporan padam terpetakan' + (meta.outageSourceConfigured ? '' : ' • sumber laporan belum tersambung'));
+
       } catch (err) {
         console.error('Gagal memuat database kode pos:', err);
         powerOutageDatabase = [];
@@ -544,17 +549,22 @@
             return '<li>' + escapePostalHtml(item.code) + ' — ' + escapePostalHtml(item.district) + '</li>';
           }).join('');
 
+          var powerStatus = String(first.status || 'BELUM ADA LAPORAN').toUpperCase();
+          var statusColor = /PADAM|OUTAGE|BLACKOUT/.test(powerStatus) ? '#dc2626' : (/RENCANA|PLANNED/.test(powerStatus) ? '#d97706' : (/MENYALA|RESTORED|SELESAI/.test(powerStatus) ? '#16a34a' : '#64748b'));
           marker.bindPopup(
-            '<div style="color:#111;min-width:220px">' +
-            '<b>Hasil pencocokan kode pos</b><br>' +
+            '<div style="color:#111;min-width:230px">' +
+            '<b>Radar Pemadaman AbidinAI</b><br>' +
+            '<b>Status:</b> <span style="color:' + statusColor + ';font-weight:700">' + escapePostalHtml(powerStatus) + '</span><br>' +
             '<b>Kecamatan:</b> ' + escapePostalHtml(first.district) + '<br>' +
             '<b>Kabupaten/Kota:</b> ' + escapePostalHtml(first.city) + '<br>' +
             '<b>Provinsi:</b> ' + escapePostalHtml(first.province) + '<br>' +
-            '<b>Kode pos cocok:</b><ul>' + listHtml + '</ul>' +
-            '<small>Titik peta adalah pusat/representasi kecamatan dari geocoding, bukan batas persil atau titik rumah.</small>' +
+            '<b>Kode pos:</b> ' + escapePostalHtml(first.code) + '<br>' +
+            '<b>Jumlah laporan:</b> ' + escapePostalHtml(first.reportCount || 0) + '<br>' +
+            '<b>Waktu laporan:</b> ' + escapePostalHtml(first.lastReport || 'Tidak tersedia') + '<br>' +
+            '<small>Sumber status: laporan komunitas jika tersedia. Belum ada laporan bukan berarti listrik menyala. Bukan data resmi PLN.</small>' +
             '</div>'
           ).openPopup();
-          setPowerStatus('Lokasi ditemukan: ' + first.district);
+          setPowerStatus('Lokasi ditemukan: ' + first.district + ' • ' + powerStatus);
         } else {
           alert('Kode pos ditemukan, tetapi koordinat kecamatan belum tersedia dari layanan peta. Data wilayah tetap cocok: ' + first.district + ', ' + first.city);
           setPowerStatus('Data cocok; koordinat belum tersedia');
@@ -717,8 +727,18 @@
     function renderPowerMarkers() {
       if (!powerMap || !powerMarkersLayer) return;
       powerMarkersLayer.clearLayers();
-      // Database kode pos belum menyimpan koordinat; marker hanya dibuat setelah
-      // geocoding lokasi kecamatan dilakukan saat pencarian.
+      // Hanya tampilkan titik yang memiliki koordinat dan laporan/status pemadaman.
+      // Tidak menggambar 10 ribu marker default agar peta tetap ringan di HP.
+      var outageRows = powerOutageDatabase.filter(function(row) {
+        return row.lat != null && row.lng != null && Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lng)) && /PADAM|OUTAGE|BLACKOUT|RENCANA|PLANNED/.test(String(row.status || '').toUpperCase());
+      });
+      outageRows.slice(0, 1500).forEach(function(row) {
+        var status = String(row.status || '').toUpperCase();
+        var color = /PADAM|OUTAGE|BLACKOUT/.test(status) ? '#ef4444' : '#f59e0b';
+        var dot = L.circleMarker([Number(row.lat), Number(row.lng)], { radius: 7, color: color, fillColor: color, fillOpacity: 0.85, weight: 2 });
+        dot.bindPopup('<b>' + escapePostalHtml(status) + '</b><br>' + escapePostalHtml(row.district) + ', ' + escapePostalHtml(row.city) + '<br>' + escapePostalHtml(row.province) + '<br>Kode pos: ' + escapePostalHtml(row.code) + '<br>Laporan: ' + escapePostalHtml(row.reportCount || 0));
+        powerMarkersLayer.addLayer(dot);
+      });
     }
 
     function initGlobe() {

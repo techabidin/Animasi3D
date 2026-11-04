@@ -1,13 +1,12 @@
 {
-  "name": "bumi-3d-postal-validation",
-  "version": "1.0.0",
+  "name": "abidinai-radar-pemadaman-nasional",
+  "version": "2.0.0",
   "private": true,
-  "description": "Dashboard Bumi 3D dengan pencarian kode pos dan geocoding kecamatan",
+  "description": "Peta nasional kode pos dan radar laporan pemadaman listrik AbidinAI",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "sync:postal": "node scripts/sync-postal.js"
   },
-  "dependencies": {
-    "express": "^4.21.2"
-  }
+  "dependencies": { "express": "^4.21.2" }
 }
