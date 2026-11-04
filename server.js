@@ -93,7 +93,7 @@ app.get('/api/power', async (req, res) => {
     outageSourceError: feed.error,
     outageRecords: feed.rows.length,
     updatedAt: feed.at ? new Date(feed.at).toISOString() : null,
-    note: feed.configured ? 'Status laporan komunitas; bukan konfirmasi resmi PLN.' : 'Data status padam belum tersambung. Minta endpoint/API resmi dan izin pengelola ListrikPadam.'
+    note: feed.configured ? 'Status laporan komunitas; bukan konfirmasi resmi PLN.' : 'DETEKSI REAL-TIME BELUM AKTIF: feed laporan belum tersambung. Minta endpoint/API resmi dan izin pengelola ListrikPadam.'
   }});
 });
 

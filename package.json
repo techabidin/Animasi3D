@@ -6,7 +6,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "sync:postal": "node scripts/sync-postal.js"
+    "sync:postal": "node sync-postal.js"
   },
-  "dependencies": { "express": "^4.21.2" }
+  "dependencies": {
+    "express": "^4.21.2"
+  }
 }
