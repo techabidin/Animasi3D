@@ -1,148 +1,131 @@
 const express = require('express');
 const path = require('path');
-const postalData = require('./post.js');
+const powerData = require('./post.js');
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
 app.disable('x-powered-by');
 app.use(express.json({ limit: '32kb' }));
 app.use(express.static(__dirname, {
   index: 'index.html',
   setHeaders(res, filePath) {
-    if (filePath.endsWith('post.js') || filePath.endsWith('server.js')) res.status(404);
+    if (filePath.endsWith('server.js') || filePath.endsWith('post.js')) {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.statusCode = 404;
+    }
   }
 }));
 
 const normalize = value => String(value || '').normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 
-function flattenPostalData() {
+function flattenPowerData() {
   const rows = [];
-  for (const [cityName, entries] of Object.entries(postalData)) {
-    const city = cityName.replace(/^(Kabupaten|Kota)\s+/i, '');
-    const administrativeType = /^Kota\s/i.test(cityName) ? 'Kota' : 'Kabupaten';
-    for (const item of entries) rows.push({
-      code: String(item.kode_pos).padStart(5, '0'),
-      district: item.kecamatan, city, administrativeType,
-      province: 'Jawa Timur'
-    });
+  if (Array.isArray(powerData)) {
+    for (const item of powerData) {
+      if (!item || typeof item !== 'object') continue;
+      rows.push({
+        code: String(item.kode_pos || item.postal_code || item.code || ''),
+        district: item.kecamatan || item.district || '',
+        city: item.kabupaten || item.kota || item.city || '',
+        province: item.provinsi || item.province || '',
+        raw: item
+      });
+    }
+    return rows;
+  }
+
+  for (const [areaName, entries] of Object.entries(powerData || {})) {
+    if (!Array.isArray(entries)) continue;
+    const match = areaName.match(/^(Kabupaten|Kota)\s+(.+)$/i);
+    const adminType = match ? match[1] : '';
+    const city = match ? match[2] : areaName;
+    for (const item of entries) {
+      if (!item || typeof item !== 'object') continue;
+      rows.push({
+        code: String(item.kode_pos || item.postal_code || item.code || ''),
+        district: item.kecamatan || item.district || '',
+        city,
+        province: item.provinsi || item.province || 'Jawa Timur',
+        administrativeType: adminType,
+        raw: item
+      });
+    }
   }
   return rows;
 }
-const postalRows = flattenPostalData();
-const geocodeCache = new Map();
-let lastGeocodeAt = 0;
+const powerRows = flattenPowerData();
 
-app.get('/api/health', (req,res) => res.json({
-  ok:true, postalRecords:postalRows.length,
-  outageSourceConfigured:Boolean(process.env.LISTRIK_PADAM_API_URL)
+app.get('/api/health', (req, res) => res.json({
+  ok: true,
+  endpoint: '/api/power',
+  postalRecords: powerRows.length,
+  areaGroups: Object.keys(powerData || {}).length
 }));
-app.get('/api/power', (req,res) => res.json(postalRows));
 
-async function geocodeDistrict(district, city) {
-  const key = normalize(`${district}|${city}`);
-  if (geocodeCache.has(key)) return geocodeCache.get(key);
-  const candidates = [
-    `Kecamatan ${district}, Kabupaten ${city}, Jawa Timur, Indonesia`,
-    `${district}, ${city}, Jawa Timur, Indonesia`,
-    `${district}, Jember, Jawa Timur, Indonesia`
-  ];
-  for (const q of candidates) {
-    const wait = Math.max(0, 1100 - (Date.now() - lastGeocodeAt));
-    if (wait) await new Promise(resolve => setTimeout(resolve, wait));
-    lastGeocodeAt = Date.now();
-    try {
-      const url = 'https://nominatim.openstreetmap.org/search?' +
-        new URLSearchParams({ q, format:'jsonv2', limit:'1', countrycodes:'id' });
-      const response = await fetch(url, {headers:{
-        'User-Agent':'AbidinAI-Radar/1.0 (postal map)',
-        'Accept-Language':'id'
-      }});
-      if (!response.ok) continue;
-      const items = await response.json();
-      if (items[0]) {
-        const point = {lat:Number(items[0].lat),lng:Number(items[0].lon),displayName:items[0].display_name};
-        if (Number.isFinite(point.lat)&&Number.isFinite(point.lng)) {
-          geocodeCache.set(key,point); return point;
-        }
-      }
-    } catch (e) { console.error('Geocoding:',e.message); }
-  }
-  geocodeCache.set(key,null);
-  return null;
-}
-
-app.get('/api/postal/search', async (req,res) => {
-  const q = normalize(req.query.q);
-  if (!q) return res.status(400).json({error:'Masukkan kode pos atau nama kecamatan.'});
-  let results;
-  if (/^\d{1,5}$/.test(q)) results=postalRows.filter(r=>r.code===q.padStart(5,'0'));
-  else results=postalRows.filter(r=>normalize(r.district).includes(q)||normalize(r.city).includes(q));
-  if (!results.length) return res.status(404).json({error:'Data kode pos/kecamatan tidak ditemukan pada database yang tersedia.'});
-  const first=results[0];
-  const location=await geocodeDistrict(first.district,first.city);
-  res.json({
-    query:req.query.q,count:results.length,results,location,
-    locationAccuracy:location?'Titik representasi kecamatan dari OpenStreetMap, bukan titik alamat/kode pos presisi':null,
-    note:'Dataset saat ini adalah data kode pos yang tersedia dalam post.js. Perlu verifikasi sumber resmi untuk kelengkapan dan ketepatan.'
-  });
-});
-
-/*
-  Integrasi sumber laporan:
-  LISTRIK_PADAM_API_URL = URL API JSON yang memang diizinkan penyedia.
-  Format yang didukung: array JSON, {reports:[...]}, atau {data:[...]}.
-  Setiap item idealnya punya lat/lng, status, location, district, city,
-  province, postal_code, reported_at, description, source.
-*/
-app.get('/api/outages', async (req,res) => {
-  const endpoint=process.env.LISTRIK_PADAM_API_URL;
-  if (!endpoint) return res.status(503).json({
-    error:'Sumber API laporan belum dikonfigurasi.',
-    reports:[],
-    hint:'Tambahkan LISTRIK_PADAM_API_URL hanya jika penyedia memberikan endpoint API dan izin penggunaan.'
-  });
+// Endpoint API yang diberikan pengguna: mengirim isi post.js apa adanya.
+app.get('/api/power', (req, res) => {
   try {
-    const headers={'Accept':'application/json'};
-    if(process.env.LISTRIK_PADAM_API_TOKEN) headers.Authorization=`Bearer ${process.env.LISTRIK_PADAM_API_TOKEN}`;
-    const upstream=await fetch(endpoint,{headers,signal:AbortSignal.timeout(15000)});
-    if(!upstream.ok) throw new Error(`Sumber API membalas HTTP ${upstream.status}`);
-    const payload=await upstream.json();
-    const reports=Array.isArray(payload)?payload:(payload.reports||payload.data||[]);
-    if(!Array.isArray(reports)) throw new Error('Format API tidak dikenali; gunakan array atau properti reports/data.');
-    res.set('Cache-Control','no-store');
-    res.json({source:payload.source||'API pemadaman terhubung',reports});
-  } catch(e) {
-    console.error('Outage source error:',e.message);
-    res.status(502).json({error:'Gagal mengambil data sumber pemadaman: '+e.message,reports:[]});
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    return res.status(200).json(powerData);
+  } catch (err) {
+    console.error('ERROR API POWER:', err);
+    return res.status(500).json({
+      error: 'Gagal memuat data pemadaman/wilayah',
+      details: err.message
+    });
   }
 });
 
-app.post('/api/assistant', async (req,res) => {
-  const apiKey=process.env.GROQ_API_KEY;
-  const question=String(req.body?.question||'').trim();
-  if(!question)return res.status(400).json({error:'Pertanyaan kosong.'});
-  if(!apiKey)return res.status(503).json({error:'Asisten AI belum dikonfigurasi.'});
-  try{
-    const upstream=await fetch('https://api.groq.com/openai/v1/chat/completions',{
-      method:'POST',
-      headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:process.env.GROQ_MODEL||'openai/gpt-oss-20b',
-        messages:[
-          {role:'system',content:'Kamu asisten informasi darurat. Jawab dalam Bahasa Indonesia. Jangan mengarang informasi pemadaman listrik atau menganggap data komunitas sebagai konfirmasi resmi PLN.'},
-          {role:'user',content:question}
-        ],temperature:0.4,max_tokens:1024
-      })
-    });
-    const data=await upstream.json();
-    if(!upstream.ok)return res.status(upstream.status).json({error:data.error?.message||'Layanan AI gagal.'});
-    res.json({answer:data.choices?.[0]?.message?.content||'Tidak ada jawaban.'});
-  }catch(e){res.status(502).json({error:'Gagal menghubungi layanan AI.'});}
+// Pencarian kode pos/wilayah memakai sumber data API /api/power (post.js).
+app.get('/api/postal/search', (req, res) => {
+  const q = normalize(req.query.q);
+  if (!q) return res.status(400).json({ error: 'Masukkan kode pos atau nama kecamatan.' });
+  let results;
+  if (/^\d{1,5}$/.test(q)) {
+    results = powerRows.filter(row => normalize(row.code) === q.padStart(5, '0'));
+  } else {
+    results = powerRows.filter(row =>
+      normalize(row.district).includes(q) ||
+      normalize(row.city).includes(q) ||
+      normalize(row.province).includes(q)
+    );
+  }
+  if (!results.length) {
+    return res.status(404).json({ error: 'Data tidak ditemukan dalam post.js yang saat ini terpasang.' });
+  }
+  res.json({
+    query: req.query.q,
+    count: results.length,
+    results: results.map(({raw, ...row}) => row),
+    source: '/api/power → post.js',
+    note: 'Data wilayah/kode pos, bukan bukti bahwa listrik sedang padam.'
+  });
 });
 
-app.get('*',(req,res)=>res.sendFile(path.join(__dirname,'index.html')));
-if(require.main===module){
-  const port=process.env.PORT||3000;
-  app.listen(port,()=>console.log(`AbidinAI Radar berjalan pada port ${port}`));
+// Laporan padam aktual adalah data terpisah dari daftar kode pos.
+// Format: env POWER_OUTAGES_JSON berisi JSON array laporan aktual.
+app.get('/api/outages', (req, res) => {
+  try {
+    const reports = process.env.POWER_OUTAGES_JSON
+      ? JSON.parse(process.env.POWER_OUTAGES_JSON)
+      : [];
+    if (!Array.isArray(reports)) throw new Error('POWER_OUTAGES_JSON harus berupa JSON array.');
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      source: process.env.POWER_OUTAGES_SOURCE || 'Belum ada sumber laporan pemadaman',
+      reports
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'POWER_OUTAGES_JSON tidak valid: ' + err.message, reports: [] });
+  }
+});
+
+app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+
+if (require.main === module) {
+  app.listen(PORT, () => console.log(`Server lokal aktif di http://localhost:${PORT}`));
 }
-module.exports=app;
+module.exports = app;

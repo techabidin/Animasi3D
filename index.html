@@ -129,22 +129,38 @@ footer{text-align:center;color:#7f8a9a;font-size:12px;padding:20px}
   }
   async function loadOutages(){
     const notice=document.getElementById('sourceNotice');
+    let regionSummary = '';
+    try {
+      const regionRes = await fetch('/api/power', {cache:'no-store'});
+      const regionData = await regionRes.json();
+      if (!regionRes.ok) throw new Error(regionData.error || 'API /api/power gagal');
+      let total = 0, groups = 0;
+      if (Array.isArray(regionData)) {
+        total = regionData.length; groups = new Set(regionData.map(x=>x.kecamatan||x.district).filter(Boolean)).size;
+      } else if (regionData && typeof regionData === 'object') {
+        groups = Object.keys(regionData).length;
+        total = Object.values(regionData).reduce((n,v)=>n+(Array.isArray(v)?v.length:0),0);
+      }
+      regionSummary = `Database wilayah dari /api/power: ${total} data kode pos dalam ${groups} kelompok wilayah.`;
+    } catch (e) {
+      regionSummary = 'API wilayah /api/power gagal dimuat: ' + e.message;
+    }
     try{
       const res=await fetch('/api/outages',{cache:'no-store'});
       const data=await res.json();
-      if(!res.ok) throw new Error(data.error||'Sumber data tidak tersedia');
+      if(!res.ok) throw new Error(data.error||'Sumber laporan tidak tersedia');
       const arr=Array.isArray(data)?data:(data.reports||data.data||[]);
       allReports=arr.map(normalizeReport);
       render();
-      const src=data.source||'API laporan yang dikonfigurasi';
+      const src=data.source||'API laporan';
       notice.className='notice '+(allReports.length?'ok':'warn');
-      notice.textContent=allReports.length
-        ? `Sumber: ${src}. ${allReports.length} laporan diterima. Titik tanpa koordinat tidak dapat ditampilkan pada peta.`
-        : 'Sumber API tersambung, tetapi belum ada laporan yang dikirim. Tidak ada titik palsu yang ditampilkan.';
+      notice.textContent=regionSummary+' '+(allReports.length
+        ? `Sumber laporan: ${src}. ${allReports.length} laporan diterima.`
+        : 'Belum ada laporan pemadaman aktual. Data kode pos tidak otomatis berarti listrik padam.');
     }catch(e){
       allReports=[];render();
       notice.className='notice warn';
-      notice.textContent='Radar belum menerima data pemadaman: '+e.message+'. Hubungkan API laporan yang sah melalui LISTRIK_PADAM_API_URL di pengaturan server.';
+      notice.textContent=regionSummary+' Radar belum menerima laporan pemadaman aktual: '+e.message+'.';
     }
   }
   document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{activeFilter=b.dataset.filter;render();}));
@@ -156,13 +172,9 @@ footer{text-align:center;color:#7f8a9a;font-size:12px;padding:20px}
       const res=await fetch('/api/postal/search?q='+encodeURIComponent(q));
       const data=await res.json();
       if(!res.ok)throw new Error(data.error||'Data tidak ditemukan');
-      out.innerHTML=`<div class="notice ok">Ditemukan ${data.count} data wilayah.</div>`+
-        data.results.map(r=>`<article class="report"><b>${esc(r.code)}</b> — ${esc(r.district)}<div class="meta">${esc(r.administrativeType)} ${esc(r.city)}, ${esc(r.province)}</div></article>`).join('')+
-        `<div class="notice ${data.location?'ok':'warn'}">${data.location?'Koordinat kecamatan ditemukan.':'Data kode pos ditemukan, tetapi koordinat belum tersedia.'} ${esc(data.locationAccuracy||'')}</div>`;
-      if(data.location&&Number.isFinite(Number(data.location.lat))&&Number.isFinite(Number(data.location.lng))){
-        const {lat,lng}=data.location;map.setView([lat,lng],13);
-        L.marker([lat,lng]).addTo(map).bindPopup(`<b>${esc(data.results[0].district)}</b><br>${esc(data.results[0].city)}<br>Titik representasi kecamatan`).openPopup();
-      }
+      out.innerHTML=`<div class="notice ok">Ditemukan ${data.count} data wilayah dari ${esc(data.source||'/api/power')}.</div>`+
+        data.results.map(r=>`<article class="report"><b>${esc(r.code)}</b> — ${esc(r.district)}<div class="meta">${esc(r.administrativeType||'')} ${esc(r.city)}, ${esc(r.province)}</div></article>`).join('')+
+        `<div class="notice warn">${esc(data.note||'Data kode pos/wilayah. Koordinat presisi belum tersedia dari API ini.')}</div>`;
     }catch(e){out.innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;}
   }
   document.getElementById('searchBtn').addEventListener('click',searchPostal);
