@@ -1,2 +1,2 @@
-// Vercel Serverless Function: teruskan request API ke Express app.
+// Adapter Vercel Functions; seluruh logika aplikasi tetap berada di server.js (root).
 module.exports = require('../server');
