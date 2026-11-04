@@ -1,12 +1,14 @@
 {
-  "name": "abidinai-radar-pemadaman-nasional",
+  "name": "abidinai-radar-pemadaman",
   "version": "2.0.0",
   "private": true,
-  "description": "Peta nasional kode pos dan radar laporan pemadaman listrik AbidinAI",
+  "description": "Radar pemadaman listrik dan pencarian kode pos AbidinAI",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "sync:postal": "node sync-postal.js"
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "express": "^4.21.2"

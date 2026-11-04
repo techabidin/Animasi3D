@@ -1,1235 +1,175 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Bumi 3D Explorer - Radar Gempa BMKG & Radar Listrik Kode Pos</title>
-  
-  <!-- Leaflet CSS for Live Radar View -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0e17;color:#e8eef7;overflow:hidden;height:100vh}
-    
-    .dashboard-view{position:absolute;inset:0;display:none;z-index:10}
-    .dashboard-view.active{display:block}
-    
-    #globeViz{width:100%;height:100%;cursor:grab}
-    #globeViz:active{cursor:grabbing}
-
-    /* Navigation Dashboard Bar (Swipeable di HP) */
-    #dashNav{
-      position:fixed;
-      bottom:10px;
-      left:50%;
-      transform:translateX(-50%);
-      z-index:25;
-      background:rgba(12,18,32,.95);
-      backdrop-filter:blur(14px);
-      border:1px solid rgba(100,140,220,.3);
-      border-radius:14px;
-      padding:6px;
-      display:flex;
-      gap:6px;
-      width:min(94vw, 550px);
-      overflow-x:auto;
-      white-space:nowrap;
-      scroll-behavior:smooth;
-      -webkit-overflow-scrolling:touch;
-      box-shadow:0 6px 24px rgba(0,0,0,.7);
-    }
-    #dashNav::-webkit-scrollbar{display:none}
-    #dashNav{-ms-overflow-style:none;scrollbar-width:none}
-
-    .dash-btn{
-      background:transparent;
-      border:none;
-      color:#8a9bb5;
-      padding:8px 14px;
-      border-radius:10px;
-      font-size:.78rem;
-      font-weight:600;
-      cursor:pointer;
-      transition:all .2s;
-      flex-shrink:0;
-      display:inline-flex;
-      align-items:center;
-      gap:4px;
-    }
-    .dash-btn:hover{color:#fff;background:rgba(255,255,255,.06)}
-    .dash-btn.active{background:linear-gradient(135deg,rgba(59,130,246,.4),rgba(139,92,246,.35));color:#fff;border:1px solid rgba(100,160,255,.4)}
-
-    /* Info Panel */
-    #infoPanel{position:fixed;top:12px;right:12px;width:min(400px,96vw);max-height:calc(100vh - 24px);background:rgba(12,18,32,.96);backdrop-filter:blur(14px);border:1px solid rgba(100,140,220,.25);border-radius:14px;display:none;flex-direction:column;z-index:20;box-shadow:0 10px 30px rgba(0,0,0,.55)}
-    #infoPanel.open{display:flex}
-    .panel-header{padding:12px 16px 10px;background:linear-gradient(135deg,rgba(40,80,160,.4),rgba(20,40,80,.3));border-bottom:1px solid rgba(100,140,220,.2);display:flex;align-items:center;gap:10px}
-    .panel-header img.flag{width:42px;height:28px;object-fit:cover;border-radius:4px}
-    .panel-header h2{font-size:1.15rem;font-weight:600;flex:1}
-    .close-btn{background:rgba(255,255,255,.08);border:none;color:#aab;width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:1rem}
-    .close-btn:hover{background:rgba(255,80,80,.3);color:#fff}
-    .panel-body{padding:12px 16px 16px;overflow-y:auto;flex:1}
-    .section{margin-bottom:14px}
-    .section-title{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:#7a9cc9;margin-bottom:6px;font-weight:600;display:flex;align-items:center;gap:6px}
-    .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-    .info-item{background:rgba(255,255,255,.04);border-radius:6px;padding:6px 8px}
-    .info-item .label{font-size:.65rem;color:#8a9bb5;margin-bottom:2px}
-    .info-item .value{font-size:.85rem;font-weight:500}
-    .weather-box{background:linear-gradient(135deg,rgba(30,100,180,.25),rgba(20,60,120,.2));border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:12px}
-    .weather-icon{font-size:2.2rem}
-    .weather-temp{font-size:1.6rem;font-weight:600}
-    .weather-desc{font-size:.82rem;color:#a8c4e8}
-    .weather-meta{font-size:.7rem;color:#6a7a90;margin-top:2px}
-    .live-badge{display:inline-flex;align-items:center;gap:4px;font-size:.62rem;background:rgba(40,180,100,.25);color:#6dffb0;padding:2px 6px;border-radius:4px;font-weight:600;margin-left:4px}
-    .live-dot{width:6px;height:6px;background:#2ecc71;border-radius:50%;animation:pulse 1s infinite}
-    @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(1.2)}}
-    .refresh-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px}
-    .refresh-btn{background:rgba(40,90,180,.35);border:1px solid rgba(100,160,255,.35);color:#c8d8f0;border-radius:6px;padding:5px 10px;font-size:.75rem;cursor:pointer}
-    .refresh-btn:hover{background:rgba(40,90,180,.55);color:#fff}
-    .last-update{font-size:.68rem;color:#6a7a90}
-    .event-list{list-style:none}
-    .event-list li{padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06);display:flex;gap:8px;align-items:flex-start}
-    .event-list li:last-child{border-bottom:none}
-    .event-icon{font-size:1.1rem;flex-shrink:0}
-    .event-title{font-size:.85rem;color:#c8d8f0;line-height:1.3;font-weight:500}
-    .event-meta{font-size:.7rem;color:#6a7a90;margin-top:2px}
-    .badge{display:inline-block;font-size:.62rem;padding:2px 6px;border-radius:4px;font-weight:600;margin-left:4px}
-    .badge-mag{background:rgba(255,80,80,.3);color:#ffb0b0;font-weight:700}
-    .badge-alert{background:rgba(255,50,50,.4);color:#ff9a9a;font-weight:700}
-    .loading{text-align:center;padding:16px;color:#8a9bb5;font-size:.85rem}
-    
-    #topBar{position:fixed;top:10px;left:10px;z-index:15;display:flex;flex-direction:column;gap:6px}
-    .title-badge{background:rgba(12,18,32,.85);border:1px solid rgba(100,140,220,.25);border-radius:10px;padding:8px 14px;font-size:.9rem;font-weight:600}
-    .controls{display:flex;gap:5px;flex-wrap:wrap}
-    .ctrl-btn{background:rgba(12,18,32,.85);border:1px solid rgba(100,140,220,.25);color:#c8d8f0;border-radius:8px;padding:6px 10px;font-size:.75rem;cursor:pointer}
-    .ctrl-btn:hover,.ctrl-btn.active{background:rgba(40,90,180,.5);color:#fff}
-    
-    #timeIndicator{position:fixed;bottom:64px;left:14px;background:rgba(12,18,32,.85);border:1px solid rgba(100,140,220,.25);border-radius:8px;padding:6px 12px;font-size:.75rem;color:#a8c4e8;z-index:15}
-    #searchBox{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:15;width:min(300px,80vw)}
-    #searchInput{width:100%;background:rgba(12,18,32,.9);border:1px solid rgba(100,140,220,.3);border-radius:10px;padding:8px 14px;color:#e8eef7;font-size:.9rem;outline:none}
-    #searchResults{margin-top:4px;background:rgba(12,18,32,.95);border:1px solid rgba(100,140,220,.25);border-radius:8px;max-height:220px;overflow-y:auto;display:none}
-    #searchResults div{padding:8px 12px;cursor:pointer;font-size:.85rem}
-    #searchResults div:hover{background:rgba(40,90,180,.3)}
-    #hint{position:fixed;bottom:64px;right:14px;background:rgba(12,18,32,.8);border-radius:6px;padding:5px 10px;font-size:.7rem;color:#6a7a90;z-index:15}
-    
-    .emergency-numbers{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-    .emergency-item{background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.25);border-radius:6px;padding:6px 8px;text-align:center}
-    .emergency-item .num{font-size:1rem;font-weight:700;color:#ff9a9a}
-    .emergency-item .label{font-size:.65rem;color:#aab}
-
-    /* Inner Dash Containers */
-    .inner-dash-container{position:absolute;inset:0;padding:70px 20px 80px;overflow-y:auto;background:radial-gradient(circle at center, rgba(16,24,48,0.95) 0%, rgba(10,14,23,0.98) 100%)}
-    .dash-header-title{font-size:1.4rem;font-weight:700;margin-bottom:4px;background:linear-gradient(135deg,#60a5fa,#c084fc);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-    .dash-header-sub{font-size:.85rem;color:#8a9bb5;margin-bottom:20px}
-    .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px}
-    .stat-card{background:rgba(255,255,255,.03);border:1px solid rgba(100,140,220,.2);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:4px;position:relative;overflow:hidden}
-    .stat-card::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(to bottom,#3b82f6,#8b5cf6)}
-    .stat-title{font-size:.72rem;color:#8a9bb5;text-transform:uppercase;letter-spacing:.05em}
-    .stat-value{font-size:1.6rem;font-weight:700;color:#fff}
-    .stat-desc{font-size:.72rem;color:#6dffb0}
-
-    /* Maps Wrappers & Search Bar Pemadaman Kode Pos */
-    #radarWrapper, #powerWrapper{position:relative;width:100%;height:58vh;min-height:360px;border-radius:14px;overflow:hidden;border:1px solid rgba(100,140,220,.3)}
-    .detect-panel{margin-top:12px;background:rgba(12,18,32,.92);border:1px solid rgba(100,140,220,.25);border-radius:12px;padding:14px;color:#e8eef7}
-    .detect-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}
-    .detect-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px}
-    .detect-stat{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:9px}
-    .detect-stat small{display:block;color:#91a4c0;font-size:.68rem}
-    .detect-stat strong{display:block;font-size:1.15rem;margin-top:3px}
-    .detect-list{display:grid;gap:8px}
-    .detect-item{border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px;background:rgba(255,255,255,.025);font-size:.8rem}
-    .detect-item strong{color:#fff}
-    .detect-muted{color:#9aabc3;font-size:.78rem;line-height:1.5}
-    @media(max-width:600px){.detect-grid{grid-template-columns:repeat(2,minmax(0,1fr))} #powerWrapper{height:52vh;min-height:320px}}
-    #liveRadarMap, #livePowerMap{width:100%;height:100%;z-index:5}
-
-    .power-search-bar{
-      position:absolute;
-      top:12px;
-      left:14px;
-      z-index:1000;
-      display:flex;
-      gap:6px;
-      width:min(320px, 85vw);
-    }
-    .power-search-bar input{
-      flex:1;
-      background:rgba(12,18,32,.92);
-      border:1px solid rgba(100,140,220,.4);
-      backdrop-filter:blur(10px);
-      border-radius:8px;
-      padding:8px 12px;
-      color:#fff;
-      font-size:0.82rem;
-      outline:none;
-    }
-    .power-search-bar button{
-      background:rgba(59,130,246,.5);
-      border:1px solid rgba(100,160,255,.4);
-      color:#fff;
-      border-radius:8px;
-      padding:0 12px;
-      font-size:0.8rem;
-      font-weight:600;
-      cursor:pointer;
-    }
-    
-    .radar-status-bar{position:absolute;bottom:14px;left:14px;z-index:1000;background:rgba(12,18,32,.9);border:1px solid rgba(100,140,220,.4);backdrop-filter:blur(10px);border-radius:10px;padding:8px 14px;display:flex;align-items:center;gap:12px;font-size:.78rem;color:#e8eef7;box-shadow:0 4px 20px rgba(0,0,0,.5)}
-    .radar-status-dot{width:10px;height:10px;background:#ef4444;border-radius:50%;box-shadow:0 0 10px #ef4444;animation:radarPulse 1s infinite alternate}
-    @keyframes radarPulse{0%{transform:scale(0.8);opacity:0.4}100%{transform:scale(1.2);opacity:1}}
-
-    /* Ripple Animation */
-    .seismic-ripple {
-      position: absolute;
-      border: 2px solid #ef4444;
-      background: rgba(239, 68, 68, 0.2);
-      border-radius: 50%;
-      animation: ripple 2s infinite ease-out;
-      pointer-events: none;
-    }
-    @keyframes ripple {
-      0% { width: 10px; height: 10px; margin-left: -5px; margin-top: -5px; opacity: 1; }
-      100% { width: 70px; height: 70px; margin-left: -35px; margin-top: -35px; opacity: 0; }
-    }
-
-    /* Checklist Item */
-    .checklist-item{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;margin-bottom:8px;cursor:pointer;transition:all .2s}
-    .checklist-item:hover{background:rgba(255,255,255,.07)}
-    .checklist-item input{width:16px;height:16px;accent-color:#3b82f6;cursor:pointer}
-    .checklist-item span{font-size:.85rem;font-weight:500;color:#c8d8f0}
-
-    /* AI FAB & Chat Compact */
-    #aiFab{position:fixed;bottom:70px;right:16px;width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#8b5cf6);border:none;color:#fff;font-size:1.2rem;cursor:pointer;box-shadow:0 4px 20px rgba(59,130,246,.45);z-index:30}
-    #aiChat{position:fixed;bottom:130px;right:16px;width:min(360px,92vw);height:440px;background:rgba(12,18,32,.97);border:1px solid rgba(100,140,220,.3);border-radius:14px;display:none;flex-direction:column;z-index:35}
-    #aiChat.open{display:flex}
-    .ai-header{padding:10px 14px;background:linear-gradient(135deg,rgba(59,130,246,.35),rgba(139,92,246,.3));display:flex;align-items:center;justify-content:space-between}
-    .ai-header h3{font-size:.9rem}
-    .ai-close{background:rgba(255,255,255,.1);border:none;color:#ccc;width:26px;height:26px;border-radius:6px;cursor:pointer}
-    .ai-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
-    .ai-msg{max-width:88%;padding:8px 10px;border-radius:10px;font-size:.82rem;line-height:1.4}
-    .ai-msg.user{align-self:flex-end;background:rgba(59,130,246,.35)}
-    .ai-msg.bot{align-self:flex-start;background:rgba(255,255,255,.06)}
-    .ai-input-row{padding:8px 10px;border-top:1px solid rgba(100,140,220,.15);display:flex;gap:6px}
-    #aiInput{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(100,140,220,.25);border-radius:8px;padding:8px 10px;color:#e8eef7;font-size:.85rem;outline:none}
-    #aiSend{background:linear-gradient(135deg,#3b82f6,#6366f1);border:none;color:#fff;border-radius:8px;padding:0 14px;cursor:pointer;font-weight:600;font-size:.82rem}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111720">
+<title>AbidinAI — Radar Pemadaman Listrik</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<style>
+:root{color-scheme:dark;--bg:#11151d;--panel:#1a222d;--line:#303a48;--muted:#aeb8c7;--red:#ff647d;--orange:#ffbd4a;--blue:#4668ee;--green:#49c99a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#edf2fa;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:1050px;margin:auto;padding:22px 16px 110px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:20px}.brand{font-weight:800;font-size:20px}.brand span{color:#ff6b82}.tag{font-size:12px;color:var(--muted)}
+h1{font-size:clamp(25px,5vw,38px);line-height:1.15;margin:18px 0 8px}p{color:var(--muted);margin:0 0 18px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:16px;margin:16px 0;box-shadow:0 8px 25px #0002}
+.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}.chip{border:1px solid var(--line);border-radius:30px;background:#222c39;padding:10px 14px;font-weight:650;color:#e9eef7;cursor:pointer}.dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:-1px}.red{background:var(--red)}.orange{background:var(--orange)}.blue{background:var(--blue)}
+#map{height:min(68vh,620px);min-height:340px;border-radius:14px;overflow:hidden;background:#d8e2e8}
+.legend{display:grid;gap:9px;margin-top:14px;color:var(--muted)}.legend div{display:flex;align-items:center;gap:9px}.ring{width:13px;height:13px;border:3px solid var(--blue);border-radius:50%}
+.searchrow{display:flex;gap:9px;flex-wrap:wrap}.searchrow input{flex:1;min-width:180px}.field,select{background:#101720;color:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;font:inherit}.btn{border:0;border-radius:12px;padding:12px 17px;background:#4968ee;color:white;font-weight:750;font:inherit;cursor:pointer}.btn.secondary{background:#2a3544}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.stat{background:#121a24;border:1px solid var(--line);padding:12px;border-radius:14px}.stat strong{display:block;font-size:23px}.stat small{color:var(--muted)}
+.notice{padding:12px 14px;border-radius:12px;background:#242d3a;color:#c8d2df;margin-top:12px;font-size:13px}.notice.warn{border-left:4px solid var(--orange)}.notice.ok{border-left:4px solid var(--green)}
+.list{display:grid;gap:10px}.report{border:1px solid var(--line);border-radius:14px;padding:13px;background:#151d27}.reporthead{display:flex;justify-content:space-between;gap:10px;align-items:center}.status{font-size:12px;font-weight:800;padding:4px 9px;border-radius:20px;background:#303a48}.status.confirmed{color:#ff9cad}.status.unconfirmed{color:#ffd17a}.status.planned{color:#9eb0ff}.meta{font-size:13px;color:var(--muted);margin-top:6px}.empty{padding:22px;text-align:center;color:var(--muted);border:1px dashed #465263;border-radius:14px}
+footer{text-align:center;color:#7f8a9a;font-size:12px;padding:20px}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#1b2430;color:#eef3fb}.leaflet-popup-content{margin:12px;line-height:1.5}.leaflet-container a{color:#9bb5ff}
+@media(max-width:560px){main{padding:15px 12px 100px}.panel{padding:12px;border-radius:18px}.stats{grid-template-columns:repeat(3,1fr)}.stat strong{font-size:19px}#map{height:55vh;min-height:320px}}
+</style>
 </head>
 <body>
+<main>
+  <div class="top"><div class="brand">⚡ <span>ABIDINAI</span> RADAR</div><div class="tag">Informasi pemadaman listrik</div></div>
+  <h1>Radar Pemadaman Listrik Indonesia</h1>
+  <p>Pantau laporan listrik padam berdasarkan lokasi, kecamatan, kabupaten/kota, provinsi, dan kode pos. Laporan komunitas bukan konfirmasi resmi PLN.</p>
 
-  <!-- DASHBOARD 1: GLOBE 3D EXPLORER (UTAMA) -->
-  <div id="dashGlobe" class="dashboard-view active">
-    <div id="globeViz"></div>
-
-    <div id="topBar">
-      <div class="title-badge">Bumi 3D - Emergency & Power</div>
-      <div class="controls">
-        <button class="ctrl-btn active" id="btnRotate">Putar</button>
-        <button class="ctrl-btn" id="btnDayNight">Siang/Malam</button>
-        <button class="ctrl-btn" id="btnReset">Reset</button>
-      </div>
+  <section class="panel">
+    <div class="filters">
+      <button class="chip" data-filter="all">Semua laporan</button>
+      <button class="chip" data-filter="confirmed"><i class="dot red"></i>Padam sekarang</button>
+      <button class="chip" data-filter="unconfirmed"><i class="dot orange"></i>Laporan belum terkonfirmasi</button>
+      <button class="chip" data-filter="planned"><i class="dot blue"></i>Pemadaman terencana</button>
     </div>
-
-    <div id="searchBox">
-      <input type="text" id="searchInput" placeholder="Cari negara atau kota..." autocomplete="off" />
-      <div id="searchResults"></div>
+    <div id="map" aria-label="Peta radar pemadaman listrik"></div>
+    <div class="legend">
+      <div><i class="dot red"></i>Padam terkonfirmasi oleh sumber laporan</div>
+      <div><i class="dot orange"></i>Laporan belum terkonfirmasi</div>
+      <div><i class="dot blue"></i>Terencana — sedang berlangsung</div>
+      <div><i class="ring"></i>Terencana — akan datang</div>
+      <div>🔵 Angka pada marker menunjukkan beberapa laporan berdekatan; ketuk/perbesar peta.</div>
     </div>
+    <div id="sourceNotice" class="notice warn">Menghubungkan sumber laporan pemadaman…</div>
+  </section>
 
-    <div id="timeIndicator">
-      <span id="timeIcon">Sun</span>
-      <span id="timeText">Memuat waktu...</span>
+  <section class="panel">
+    <h2 style="margin:0 0 12px">Cari kode pos / wilayah</h2>
+    <div class="searchrow">
+      <input class="field" id="postalQuery" inputmode="search" placeholder="Contoh: 68111 atau Patrang">
+      <button class="btn" id="searchBtn">Cari</button>
     </div>
+    <div id="postalResult" style="margin-top:12px"></div>
+  </section>
 
-    <div id="hint">Klik negara · Drag putar · Scroll zoom</div>
-
-    <div id="infoPanel">
-      <div class="panel-header">
-        <img class="flag" id="countryFlag" src="" alt="" />
-        <h2 id="countryName">-</h2>
-        <button class="close-btn" id="closePanel">X</button>
-      </div>
-      <div class="panel-body" id="panelBody">
-        <div class="loading">Memuat data...</div>
-      </div>
+  <section class="panel">
+    <h2 style="margin:0 0 12px">Informasi deteksi</h2>
+    <div class="stats">
+      <div class="stat"><strong id="countAll">0</strong><small>Total laporan</small></div>
+      <div class="stat"><strong id="countActive">0</strong><small>Padam sekarang</small></div>
+      <div class="stat"><strong id="countPlanned">0</strong><small>Terencana</small></div>
     </div>
-  </div>
+    <div id="reportList" class="list" style="margin-top:14px"><div class="empty">Memuat laporan…</div></div>
+  </section>
+  <footer>© 2026 AbidinAI Ecosystem • Data laporan dapat berbeda dari kondisi lapangan.</footer>
+</main>
 
-  <!-- DASHBOARD 2: STATISTIK & ANALITIK BENCANA GLOBAL -->
-  <div id="dashStats" class="dashboard-view">
-    <div class="inner-dash-container">
-      <div class="dash-header-title">Statistik Pemantauan (BMKG & Kode Pos Pemadaman)</div>
-      <div class="dash-header-sub">Ringkasan aktivitas seismik BMKG dan status jaringan listrik berbasis Kode Pos Kabupaten/Kota se-Jawa Timur.</div>
-      
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-title">Gempa Terdeteksi</div>
-          <div class="stat-value" id="statEarthquakeCount">--</div>
-          <div class="stat-desc">Sumber: BMKG + EMSC</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #f59e0b;">
-          <div class="stat-title">Kode Pos Terdata</div>
-          <div class="stat-value" id="statTotalOutages" style="color:#f59e0b;">0</div>
-          <div class="stat-desc">Database: post.js</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-title">Status Detektor Real-Time</div>
-          <div class="stat-value" id="statRealTimeStatus" style="color:#6dffb0;">AKTIF (1s)</div>
-          <div class="stat-desc">Polling Sensor Per Detik</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-title">Gempa Terbaru BMKG</div>
-          <div class="stat-value" id="statLatestMag" style="font-size:1.2rem;color:#f59e0b;">-</div>
-          <div class="stat-desc" id="statLatestLoc">Menghubungkan...</div>
-        </div>
-      </div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+(() => {
+  'use strict';
+  const map = L.map('map',{scrollWheelZoom:true}).setView([-8.15,113.70],9);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:19,attribution:'© OpenStreetMap contributors'
+  }).addTo(map);
+  const clusters = L.markerClusterGroup({showCoverageOnHover:false, spiderfyOnMaxZoom:true});
+  map.addLayer(clusters);
+  let allReports=[], activeFilter='all', currentMarkers=[];
 
-      <div class="section">
-        <div class="section-title">Daftar Gempa Terkini Real-Time (BMKG & EMSC)</div>
-        <div id="globalStatsList" class="guide-box" style="padding: 14px; font-size: 0.85rem;">
-          Memuat stream seismik...
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- DASHBOARD 3: RADAR GEMPA BMKG -->
-  <div id="dashRadar" class="dashboard-view">
-    <div class="inner-dash-container">
-      <div class="dash-header-title">Peta Radar Live (Real-Time BMKG & USGS Radar)</div>
-      <div class="dash-header-sub">Pantauan gempa perdetik langsung dari sensor BMKG dengan animasi gelombang kejut.</div>
-      
-      <div id="radarWrapper">
-        <div id="liveRadarMap"></div>
-        <div class="radar-status-bar">
-          <div class="radar-status-dot"></div>
-          <div>
-            <strong>BMKG Live Pulse Detector:</strong> 
-            <span id="pulseTimer">Deteksi aktif (<span id="secCounter">0</span>d lalu)</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- DASHBOARD 4: RADAR PEMADAMAN LISTRIK KODE POS API -->
-  <div id="dashPower" class="dashboard-view">
-    <div class="inner-dash-container">
-      <div class="dash-header-title">Radar Pemadaman Listrik Indonesia</div>
-      <div class="dash-header-sub">Pantau laporan listrik padam berdasarkan kode pos, desa/kelurahan, kecamatan, kabupaten/kota, dan provinsi. Data laporan komunitas bukan konfirmasi resmi PLN.</div>
-      
-      <div id="powerWrapper">
-        <div class="power-search-bar">
-          <input type="text" id="postalSearchInput" placeholder="Cari Kode Pos / Kecamatan..." />
-          <button id="btnSearchPostal">Cari</button>
-        </div>
-        <div id="livePowerMap"></div>
-        <div class="radar-status-bar">
-          <div class="radar-status-dot" style="background:#f59e0b;box-shadow:0 0 10px #f59e0b;"></div>
-          <div>
-            <strong>Radar Nasional:</strong> 
-            <span id="powerSecCounter">Memuat data wilayah dan laporan...</span>
-          </div>
-        </div>
-      </div>
-      <section class="detect-panel" aria-live="polite">
-        <div class="detect-head"><strong>📍 Informasi Lokasi Terdeteksi</strong><span id="detectFeedState" class="detect-muted">Memeriksa sumber laporan...</span></div>
-        <div class="detect-grid">
-          <div class="detect-stat"><small>Total data wilayah</small><strong id="detectTotal">0</strong></div>
-          <div class="detect-stat"><small>Titik laporan padam</small><strong id="detectOutage">0</strong></div>
-          <div class="detect-stat"><small>Lokasi terpetakan</small><strong id="detectMapped">0</strong></div>
-        </div>
-        <div id="detectList" class="detect-list"><div class="detect-muted">Belum ada laporan yang dapat ditampilkan.</div></div>
-        <p class="detect-muted" id="detectDisclaimer" style="margin-top:10px">Status menunggu data dari sumber laporan yang diizinkan. Belum ada laporan bukan berarti listrik menyala.</p>
-      </section>
-    </div>
-  </div>
-
-  <!-- DASHBOARD 5: CHECKLIST TAS SIAGA & DARURAT -->
-  <div id="dashChecklist" class="dashboard-view">
-    <div class="inner-dash-container">
-      <div class="dash-header-title">Tas Siaga Bencana & Panduan Cepat</div>
-      <div class="dash-header-sub">Centang perlengkapan darurat yang telah Anda siapkan di rumah untuk evakuasi mandiri.</div>
-
-      <div class="section">
-        <div class="checklist-item"><input type="checkbox" id="c1" /><span>Dokumen Penting (KTP, KK, Sertifikat dalam kantong kedap air)</span></div>
-        <div class="checklist-item"><input type="checkbox" id="c2" /><span>Air Minum Kemasan (Minimal untuk 3 hari per orang)</span></div>
-        <div class="checklist-item"><input type="checkbox" id="c3" /><span>Makanan Siap Saji / Kering (Biskuit, mi instan, makanan kaleng)</span></div>
-        <div class="checklist-item"><input type="checkbox" id="c4" /><span>Kotak P3K & Obat-obatan Pribadi / P3K Standar</span></div>
-        <div class="checklist-item"><input type="checkbox" id="c5" /><span>Senter / Lampu Darurat & Baterai Cadangan</span></div>
-        <div class="checklist-item"><input type="checkbox" id="c6" /><span>Radio Portabel (AM/FM) untuk memantau info BMKG</span></div>
-        <div class="checklist-item"><input type="checkbox" id="c7" /><span>Pakaian ganti, jaket, dan alas kaki yang kuat</span></div>
-        <div class="checklist-item"><input type="checkbox" id="c8" /><span>Peluit darurat untuk memberi tanda posisi</span></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- NAVIGASI DASHBOARD (SWIPEABLE DI HP) -->
-  <div id="dashNav">
-    <button class="dash-btn active" data-target="dashGlobe">🌐 Globe 3D</button>
-    <button class="dash-btn" data-target="dashStats">📊 Statistik</button>
-    <button class="dash-btn" data-target="dashRadar">🗺️ Radar BMKG</button>
-    <button class="dash-btn" data-target="dashPower">⚡ Pemadaman (API)</button>
-    <button class="dash-btn" data-target="dashChecklist">🎒 Siaga Bencana</button>
-  </div>
-
-  <!-- AI FAB & CHAT -->
-  <button id="aiFab" title="AI Emergency Assistant">AI</button>
-
-  <div id="aiChat">
-    <div class="ai-header">
-      <h3>AI Emergency Assistant</h3>
-      <button class="ai-close" id="aiClose">X</button>
-    </div>
-    <div class="ai-messages" id="aiMessages">
-      <div class="ai-msg bot">Halo! Saya asisten darurat. Tanyakan gempa BMKG atau status mati lampu berdasarkan API Kode Pos.</div>
-    </div>
-    <div class="ai-input-row">
-      <input type="text" id="aiInput" placeholder="Tanya misal: status listrik kode pos..." />
-      <button id="aiSend">Kirim</button>
-    </div>
-  </div>
-
-  <!-- Leaflet JS & Globe.gl JS -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/globe.gl@2.32.0"></script>
-  <script>
-    // @ts-nocheck
-    var GEOJSON_URL = 'https://raw.githubusercontent.com/vasturiano/globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson';
-    var EARTH_DAY = 'https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-blue-marble.jpg';
-    var EARTH_NIGHT = 'https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg';
-    var EARTH_TOPO = 'https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png';
-
-    var GROQ_API_KEY = ''; // Kunci API tidak boleh disimpan di frontend. Gunakan backend.
-
-    var countriesData = [];
-    var countryIndex = {};
-    var selectedFeature = null;
-    var autoRotate = true;
-    var dayNightMode = false;
-    var world = null;
-    var lastPanelCtx = null;
-    
-    var liveMap = null;
-    var powerMap = null;
-    var mapInitialized = false;
-    var powerMapInitialized = false;
-    
-    var liveQuakeData = [];
-    var powerOutageDatabase = [];
-
-    var secondsSinceUpdate = 0;
-    var powerSecondsSinceUpdate = 0;
-    var radarMarkersLayer = null;
-    var powerMarkersLayer = null;
-
-    // Navigasi Dashboard
-    var dashButtons = document.querySelectorAll('.dash-btn');
-    dashButtons.forEach(function(btn) {
-      btn.onclick = function() {
-        dashButtons.forEach(function(b) { b.classList.remove('active'); });
-        document.querySelectorAll('.dashboard-view').forEach(function(v) { v.classList.remove('active'); });
-        this.classList.add('active');
-        
-        this.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-
-        var targetId = this.getAttribute('data-target');
-        document.getElementById(targetId).classList.add('active');
-        
-        if (targetId === 'dashGlobe' && world) {
-          setTimeout(function() { world._resize(); }, 100);
-        }
-        if (targetId === 'dashRadar') {
-          if (!mapInitialized) {
-            initLiveMap();
-            mapInitialized = true;
-          } else if (liveMap) {
-            liveMap.invalidateSize();
-          }
-        }
-        if (targetId === 'dashPower') {
-          if (!powerMapInitialized) {
-            initPowerMap();
-            powerMapInitialized = true;
-          } else if (powerMap) {
-            powerMap.invalidateSize();
-          }
-        }
-      };
-    });
-
-    // Initialize Leaflet Live Radar Map (Earthquakes)
-    function initLiveMap() {
-      var esriSatellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 19,
-        attribution: 'Tiles &copy; Esri &mdash; Satellite Terrain'
-      });
-
-      var esriLabels = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 19,
-        attribution: 'Labels &copy; Esri'
-      });
-
-      var satelliteHybrid = L.layerGroup([esriSatellite, esriLabels]);
-
-      liveMap = L.map('liveRadarMap', {
-        center: [-2.5, 118],
-        zoom: 5,
-        layers: [satelliteHybrid]
-      });
-
-      radarMarkersLayer = L.layerGroup().addTo(liveMap);
-      fetchRealtimeEarthquakes();
-      startRealtimeDetectors();
-    }
-
-    // Initialize Leaflet Power Outage Map (Memanggil API /api/power)
-    function initPowerMap() {
-      var osmStandard = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors'
-      });
-
-      powerMap = L.map('livePowerMap', {
-        center: [-7.8, 112.5], 
-        zoom: 8,
-        layers: [osmStandard]
-      });
-
-      powerMarkersLayer = L.layerGroup().addTo(powerMap);
-
-      // Ambil data melalui Express API
-      loadPowerDataFromAPI();
-      // Perbarui feed laporan setiap 60 detik.
-      setInterval(loadPowerDataFromAPI, 60000);
-
-      // Hook tombol pencarian kode pos
-      document.getElementById('btnSearchPostal').onclick = executePostalSearch;
-      document.getElementById('postalSearchInput').addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') executePostalSearch();
-      });
-    }
-
-    async function loadPowerDataFromAPI() {
-      try {
-        var response = await fetch('/api/power');
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        var payload = await response.json();
-        powerOutageDatabase = Array.isArray(payload) ? payload : (Array.isArray(payload.data) ? payload.data : []);
-        console.log('Database kode pos dimuat:', powerOutageDatabase.length, payload.meta || {});
-        var active = powerOutageDatabase.filter(function(x) { return /PADAM|OUTAGE|BLACKOUT/.test(String(x.status || '').toUpperCase()); }).length;
-        var meta = payload.meta || {};
-        setPowerStatus(powerOutageDatabase.length.toLocaleString('id-ID') + ' data wilayah • ' + active + ' laporan padam terdeteksi' + (meta.outageSourceConfigured ? '' : ' • sumber laporan belum tersambung'));
-        renderDetectionInfo(meta);
-
-      } catch (err) {
-        console.error('Gagal memuat database kode pos:', err);
-        powerOutageDatabase = [];
-        setPowerStatus('Gagal memuat database. Periksa server.');
-        renderDetectionInfo({ outageSourceConfigured:false, outageSourceError:err.message, totalPostalRows:0, outageRecords:0 });
-      }
-
-      renderPowerMarkers();
-      var totalElem = document.getElementById('statTotalOutages');
-      if (totalElem) totalElem.textContent = powerOutageDatabase.length;
-    }
-
-    function setPowerStatus(message) {
-      var el = document.getElementById('powerSecCounter');
-      if (el) el.textContent = message;
-    }
-
-    function renderDetectionInfo(meta) {
-      meta = meta || {};
-      var detected = powerOutageDatabase.filter(function(row) {
-        return /PADAM|OUTAGE|BLACKOUT|GANGGUAN/.test(String(row.status || '').toUpperCase());
-      });
-      var mapped = detected.filter(function(row) {
-        return row.lat != null && row.lng != null && Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lng));
-      });
-      var setText = function(id, value) { var el = document.getElementById(id); if (el) el.textContent = value; };
-      setText('detectTotal', Number(meta.totalPostalRows || powerOutageDatabase.length).toLocaleString('id-ID'));
-      setText('detectOutage', detected.length.toLocaleString('id-ID'));
-      setText('detectMapped', mapped.length.toLocaleString('id-ID'));
-      setText('detectFeedState', meta.outageSourceConfigured ? (meta.outageSourceError ? 'Sumber bermasalah' : 'Sumber laporan tersambung') : 'Sumber laporan belum tersambung');
-      var disclaimer = meta.outageSourceConfigured && !meta.outageSourceError
-        ? 'Data deteksi mengikuti feed komunitas yang dikonfigurasi; bukan konfirmasi resmi PLN.'
-        : 'BELUM ADA FEED AKTIF. Sistem belum menerima data deteksi pemadaman real-time. Ini bukan bukti listrik menyala atau padam.';
-      if (meta.outageSourceError) disclaimer += ' Pesan sumber: ' + meta.outageSourceError;
-      setText('detectDisclaimer', disclaimer);
-      var list = document.getElementById('detectList');
-      if (!list) return;
-      if (!detected.length) {
-        list.innerHTML = '<div class="detect-muted">' + (meta.outageSourceConfigured && !meta.outageSourceError ? 'Feed aktif, tetapi belum ada laporan berstatus padam/gangguan.' : 'Belum ada lokasi terdeteksi karena endpoint sumber laporan belum dikonfigurasi. Setelah API resmi/berizin dihubungkan, lokasi akan muncul di daftar ini dan sebagai titik pada peta.') + '</div>';
-        return;
-      }
-      list.innerHTML = detected.slice(0, 100).map(function(row) {
-        var place = [row.district, row.city, row.province].filter(Boolean).map(escapePostalHtml).join(', ');
-        var when = escapePostalHtml(row.lastReport || 'Waktu tidak tersedia');
-        var status = escapePostalHtml(row.status || 'PADAM');
-        var code = escapePostalHtml(row.code || '-');
-        var reports = Number(row.reportCount || 0);
-        return '<article class="detect-item"><strong>🔴 ' + status + '</strong><div>' + place + '</div><div class="detect-muted">Kode pos: ' + code + ' · Laporan: ' + reports + ' · Waktu: ' + when + '</div></article>';
-      }).join('');
-    }
-
-    function escapePostalHtml(value) {
-      return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) {
-        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]);
-      });
-    }
-
-    async function executePostalSearch() {
-      var inputEl = document.getElementById('postalSearchInput');
-      var input = inputEl.value.trim();
-      if (!input) return;
-      if (!powerMap) return;
-
-      var button = document.getElementById('btnSearchPostal');
-      button.disabled = true;
-      button.textContent = 'Mencari...';
-
-      try {
-        var response = await fetch('/api/postal/search?q=' + encodeURIComponent(input));
-        var result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'Pencarian gagal');
-        if (!result.results || !result.results.length) {
-          alert('Kode pos atau kecamatan tidak ditemukan di database.');
-          return;
-        }
-
-        var first = result.results[0];
-        if (result.location && Number.isFinite(result.location.lat) && Number.isFinite(result.location.lng)) {
-          powerMap.setView([result.location.lat, result.location.lng], 13, { animate: true });
-          powerMarkersLayer.clearLayers();
-
-          var marker = L.marker([result.location.lat, result.location.lng]).addTo(powerMarkersLayer);
-          var listHtml = result.results.slice(0, 20).map(function(item) {
-            return '<li>' + escapePostalHtml(item.code) + ' — ' + escapePostalHtml(item.district) + '</li>';
-          }).join('');
-
-          var powerStatus = String(first.status || 'BELUM ADA LAPORAN').toUpperCase();
-          var statusColor = /PADAM|OUTAGE|BLACKOUT/.test(powerStatus) ? '#dc2626' : (/RENCANA|PLANNED/.test(powerStatus) ? '#d97706' : (/MENYALA|RESTORED|SELESAI/.test(powerStatus) ? '#16a34a' : '#64748b'));
-          marker.bindPopup(
-            '<div style="color:#111;min-width:230px">' +
-            '<b>Radar Pemadaman AbidinAI</b><br>' +
-            '<b>Status:</b> <span style="color:' + statusColor + ';font-weight:700">' + escapePostalHtml(powerStatus) + '</span><br>' +
-            '<b>Kecamatan:</b> ' + escapePostalHtml(first.district) + '<br>' +
-            '<b>Kabupaten/Kota:</b> ' + escapePostalHtml(first.city) + '<br>' +
-            '<b>Provinsi:</b> ' + escapePostalHtml(first.province) + '<br>' +
-            '<b>Kode pos:</b> ' + escapePostalHtml(first.code) + '<br>' +
-            '<b>Jumlah laporan:</b> ' + escapePostalHtml(first.reportCount || 0) + '<br>' +
-            '<b>Waktu laporan:</b> ' + escapePostalHtml(first.lastReport || 'Tidak tersedia') + '<br>' +
-            '<small>Sumber status: laporan komunitas jika tersedia. Belum ada laporan bukan berarti listrik menyala. Bukan data resmi PLN.</small>' +
-            '</div>'
-          ).openPopup();
-          setPowerStatus('Lokasi ditemukan: ' + first.district + ' • ' + powerStatus);
-        } else {
-          alert('Kode pos ditemukan, tetapi koordinat kecamatan belum tersedia dari layanan peta. Data wilayah tetap cocok: ' + first.district + ', ' + first.city);
-          setPowerStatus('Data cocok; koordinat belum tersedia');
-        }
-      } catch (err) {
-        console.error(err);
-        alert('Pencarian gagal: ' + err.message);
-        setPowerStatus('Pencarian gagal');
-      } finally {
-        button.disabled = false;
-        button.textContent = 'Cari';
-      }
-    }
-
-    // Engine Detektor Real-Time Per Detik
-    function startRealtimeDetectors() {
-      setInterval(function() {
-        secondsSinceUpdate++;
-        var secElem = document.getElementById('secCounter');
-        if (secElem) secElem.textContent = secondsSinceUpdate;
-      }, 1000);
-
-      setInterval(function() {
-        fetchRealtimeEarthquakes();
-      }, 3000);
-    }
-
-    async function fetchRealtimeEarthquakes() {
-      var allEvents = [];
-
-      try {
-        var bmkgRes = await fetch('https://data.bmkg.go.id/DataMKG/TEWS/autogempa.json?t=' + Date.now());
-        if (bmkgRes.ok) {
-          var bmkgData = await bmkgRes.json();
-          if (bmkgData && bmkgData.Infogempa && bmkgData.Infogempa.gempa) {
-            var g = bmkgData.Infogempa.gempa;
-            var coords = (g.Coordinates || '').split(',');
-            var lat = parseFloat(coords[0]);
-            var lng = parseFloat(coords[1]);
-            if (!isNaN(lat) && !isNaN(lng)) {
-              allEvents.push({
-                id: 'bmkg_auto_' + g.Jam,
-                source: 'BMKG Live Auto',
-                mag: parseFloat(g.Magnitude),
-                place: g.Wilayah,
-                timeStr: g.Tanggal + ' ' + g.Jam,
-                lat: lat,
-                lng: lng,
-                depth: g.Kedalaman,
-                potensi: g.Potensi,
-                isLatestBMKG: true
-              });
-
-              var statMag = document.getElementById('statLatestMag');
-              var statLoc = document.getElementById('statLatestLoc');
-              if (statMag) statMag.textContent = 'M ' + g.Magnitude + ' (' + g.Jam + ')';
-              if (statLoc) statLoc.textContent = g.Wilayah;
-            }
-          }
-        }
-      } catch (e) {}
-
-      try {
-        var bmkgListRes = await fetch('https://data.bmkg.go.id/DataMKG/TEWS/gempaterkini.json?t=' + Date.now());
-        if (bmkgListRes.ok) {
-          var bList = await bmkgListRes.json();
-          var arr = (bList.Infogempa && bList.Infogempa.gempa) || [];
-          arr.forEach(function(g, idx) {
-            var coords = (g.Coordinates || '').split(',');
-            var lat = parseFloat(coords[0]);
-            var lng = parseFloat(coords[1]);
-            if (!isNaN(lat) && !isNaN(lng)) {
-              allEvents.push({
-                id: 'bmkg_' + idx + '_' + g.Jam,
-                source: 'BMKG Resmi',
-                mag: parseFloat(g.Magnitude),
-                place: g.Wilayah,
-                timeStr: g.Tanggal + ' ' + g.Jam,
-                lat: lat,
-                lng: lng,
-                depth: g.Kedalaman,
-                potensi: g.Potensi,
-                isLatestBMKG: false
-              });
-            }
-          });
-        }
-      } catch (e) {}
-
-      try {
-        var emscRes = await fetch('https://www.seismicportal.eu/fdsnws/event/1/query?format=json&limit=20');
-        if (emscRes.ok) {
-          var emscData = await emscRes.json();
-          (emscData.features || []).forEach(function(f) {
-            var p = f.properties;
-            var c = f.geometry.coordinates;
-            allEvents.push({
-              id: 'emsc_' + p.unid,
-              source: 'EMSC (seismicportal)',
-              mag: p.mag,
-              place: p.flynn_region || 'Global',
-              timeStr: new Date(p.time).toLocaleTimeString('id-ID'),
-              lat: c[1],
-              lng: c[0],
-              depth: c[2] + ' km',
-              potensi: 'Global Monitoring'
-            });
-          });
-        }
-      } catch (e) {}
-
-      liveQuakeData = allEvents;
-      secondsSinceUpdate = 0;
-      
-      renderRadarMarkers();
-      updateGlobalStatsDashboard({ bmkg: allEvents.filter(q => q.source.includes('BMKG')), usgs: allEvents.filter(q => q.source.includes('EMSC')) });
-    }
-
-    function renderRadarMarkers() {
-      if (!liveMap || !radarMarkersLayer) return;
-      radarMarkersLayer.clearLayers();
-
-      liveQuakeData.forEach(function(q) {
-        var color = q.mag >= 5.5 ? '#ef4444' : (q.mag >= 4.0 ? '#f59e0b' : '#10b981');
-        var radius = Math.max(6, q.mag * 2.8);
-
-        var circle = L.circleMarker([q.lat, q.lng], {
-          radius: radius,
-          fillColor: color,
-          color: '#ffffff',
-          weight: q.isLatestBMKG ? 2.5 : 1.2,
-          opacity: 1,
-          fillOpacity: 0.85
-        });
-
-        var popupContent = '<div style="color:#111;font-size:0.85rem;min-width:180px;">' +
-          '<b style="color:#2563eb;">' + q.source + '</b><br>' +
-          'Magnitudo: <b style="font-size:1.05rem;color:' + color + ';">M ' + q.mag + '</b><br>' +
-          '<b>Wilayah:</b> ' + q.place + '<br>' +
-          '<b>Waktu:</b> ' + q.timeStr + '<br>' +
-          '<b>Kedalaman:</b> ' + (q.depth || '-') + '<br>' +
-          (q.potensi ? '<div style="margin-top:4px;padding:3px 6px;background:#fef2f2;border-radius:4px;color:#991b1b;font-weight:600;font-size:0.75rem;">' + q.potensi + '</div>' : '') +
-          '</div>';
-
-        circle.bindPopup(popupContent);
-        radarMarkersLayer.addLayer(circle);
-
-        if (q.isLatestBMKG || q.mag >= 5.0) {
-          var customPulseIcon = L.divIcon({
-            className: 'custom-seismic-ripple',
-            html: '<div class="seismic-ripple" style="border-color:' + color + ';background:' + color + '33;"></div>',
-            iconSize: [0, 0]
-          });
-          var pulseMarker = L.marker([q.lat, q.lng], { icon: customPulseIcon });
-          radarMarkersLayer.addLayer(pulseMarker);
-        }
-      });
-    }
-
-    function renderPowerMarkers() {
-      if (!powerMap || !powerMarkersLayer) return;
-      powerMarkersLayer.clearLayers();
-      // Hanya tampilkan titik yang memiliki koordinat dan laporan/status pemadaman.
-      // Tidak menggambar 10 ribu marker default agar peta tetap ringan di HP.
-      var outageRows = powerOutageDatabase.filter(function(row) {
-        return row.lat != null && row.lng != null && Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lng)) && /PADAM|OUTAGE|BLACKOUT|RENCANA|PLANNED/.test(String(row.status || '').toUpperCase());
-      });
-      outageRows.slice(0, 1500).forEach(function(row) {
-        var status = String(row.status || '').toUpperCase();
-        var color = /PADAM|OUTAGE|BLACKOUT/.test(status) ? '#ef4444' : '#f59e0b';
-        var dot = L.circleMarker([Number(row.lat), Number(row.lng)], { radius: 7, color: color, fillColor: color, fillOpacity: 0.85, weight: 2 });
-        dot.bindPopup('<b>' + escapePostalHtml(status) + '</b><br>' + escapePostalHtml(row.district) + ', ' + escapePostalHtml(row.city) + '<br>' + escapePostalHtml(row.province) + '<br>Kode pos: ' + escapePostalHtml(row.code) + '<br>Laporan: ' + escapePostalHtml(row.reportCount || 0));
-        powerMarkersLayer.addLayer(dot);
-      });
-    }
-
-    function initGlobe() {
-      if (typeof Globe === 'undefined') {
-        document.getElementById('globeViz').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#a8c4e8;padding:20px;text-align:center;">Gagal memuat library 3D. Refresh halaman.</div>';
-        return false;
-      }
-      try {
-        world = Globe()
-          (document.getElementById('globeViz'))
-          .globeImageUrl(EARTH_DAY)
-          .bumpImageUrl(EARTH_TOPO)
-          .backgroundImageUrl('https://cdn.jsdelivr.net/npm/three-globe/example/img/night-sky.png')
-          .showAtmosphere(true)
-          .atmosphereColor('lightskyblue')
-          .atmosphereAltitude(0.15)
-          .polygonCapColor(function(d) { return d === selectedFeature ? 'rgba(80,160,255,0.55)' : 'rgba(30,80,160,0.15)'; })
-          .polygonSideColor(function() { return 'rgba(20,50,100,0.08)'; })
-          .polygonStrokeColor(function() { return '#4a7ab8'; })
-          .polygonAltitude(function(d) { return d === selectedFeature ? 0.012 : 0.004; })
-          .polygonsTransitionDuration(300)
-          .onPolygonClick(handleCountryClick)
-          .onPolygonHover(function(hoverD) {
-            document.body.style.cursor = hoverD ? 'pointer' : 'grab';
-            if (world) {
-              world.polygonAltitude(function(d) {
-                return d === selectedFeature ? 0.012 : (d === hoverD ? 0.008 : 0.004);
-              });
-            }
-          });
-
-        world.controls().autoRotate = true;
-        world.controls().autoRotateSpeed = 0.4;
-        world.controls().enableDamping = true;
-        world.controls().dampingFactor = 0.08;
-        world.controls().minDistance = 120;
-        world.controls().maxDistance = 500;
-        world.pointOfView({ lat: -2.5, lng: 118, altitude: 2.2 }, 0);
-        world.width(window.innerWidth).height(window.innerHeight);
-        return true;
-      } catch (err) {
-        console.error(err);
-        return false;
-      }
-    }
-
-    if (typeof Globe !== 'undefined') {
-      initGlobe();
-    } else {
-      window.addEventListener('load', function() { setTimeout(initGlobe, 400); });
-      setTimeout(function() { if (!world) initGlobe(); }, 2500);
-    }
-
-    fetch(GEOJSON_URL)
-      .then(function(r) { return r.json(); })
-      .then(function(geo) {
-        countriesData = geo.features.filter(function(f) {
-          return f.properties.ISO_A2 !== 'AQ' && f.properties.ISO_A2 !== '-99';
-        });
-        countriesData.forEach(function(f) {
-          var p = f.properties;
-          if (p.ISO_A2) countryIndex[p.ISO_A2] = f;
-          if (p.ISO_A3) countryIndex[p.ISO_A3] = f;
-          if (p.ADMIN) countryIndex[p.ADMIN.toLowerCase()] = f;
-          if (p.NAME) countryIndex[p.NAME.toLowerCase()] = f;
-        });
-        if (world) world.polygonsData(countriesData);
-      })
-      .catch(function(err) { console.error(err); });
-
-    function handleCountryClick(feat) {
-      if (!feat) return;
-      selectedFeature = feat;
-      if (world) world.polygonsData(countriesData);
-      var props = feat.properties;
-      var name = props.ADMIN || props.NAME || 'Unknown';
-      var iso2 = props.ISO_A2 || '';
-      var iso3 = props.ISO_A3 || '';
-      var centroid = getCentroid(feat);
-      if (centroid && world) {
-        world.pointOfView({ lat: centroid[1], lng: centroid[0], altitude: 1.4 }, 1200);
-      }
-      openPanel(name, iso2, iso3, centroid);
-    }
-
-    function getCentroid(feat) {
-      try {
-        var coords = feat.geometry.coordinates;
-        var sumLng = 0, sumLat = 0, n = 0;
-        function walk(arr) {
-          if (typeof arr[0] === 'number') {
-            sumLng += arr[0]; sumLat += arr[1]; n++;
-          } else {
-            arr.forEach(walk);
-          }
-        }
-        walk(coords);
-        if (n > 0) return [sumLng / n, sumLat / n];
-      } catch (e) {}
-      return null;
-    }
-
-    var panel = document.getElementById('infoPanel');
-    var panelBody = document.getElementById('panelBody');
-
-    document.getElementById('closePanel').onclick = function() {
-      panel.classList.remove('open');
-      selectedFeature = null;
-      if (world) world.polygonsData(countriesData);
+  const esc = s => String(s ?? '-').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const statusInfo = raw => {
+    const s=String(raw||'').toLowerCase();
+    if(['confirmed','terkonfirmasi','padam','outage','active'].some(x=>s.includes(x))) return {key:'confirmed',label:'Padam sekarang',color:'#ff647d'};
+    if(['planned','terencana','schedule','jadwal'].some(x=>s.includes(x))) return {key:'planned',label:'Pemadaman terencana',color:'#4668ee'};
+    return {key:'unconfirmed',label:'Belum terkonfirmasi',color:'#ffbd4a'};
+  };
+  function normalizeReport(r,i){
+    const lat=Number(r.lat ?? r.latitude ?? r.coordinates?.lat);
+    const lng=Number(r.lng ?? r.lon ?? r.longitude ?? r.coordinates?.lng ?? r.coordinates?.lon);
+    const st=statusInfo(r.status ?? r.state ?? r.type);
+    return {
+      id:String(r.id ?? r.report_id ?? i),
+      lat,lng,status:st.key,label:r.status_label || st.label,
+      location:r.location || r.address || r.area || r.village || r.desa || 'Lokasi tidak dirinci',
+      district:r.district || r.kecamatan || '',
+      city:r.city || r.regency || r.kabupaten || r.kota || '',
+      province:r.province || r.provinsi || '',
+      postalCode:r.postal_code || r.postalCode || r.kode_pos || '',
+      time:r.reported_at || r.created_at || r.updated_at || r.time || '',
+      description:r.description || r.message || r.note || '',
+      source:r.source || 'Sumber laporan'
     };
-
-    async function openPanel(name, iso2, iso3, centroid) {
-      panel.classList.add('open');
-      document.getElementById('countryName').textContent = name;
-      document.getElementById('countryFlag').src = (iso2 && iso2 !== '-99')
-        ? 'https://flagcdn.com/w80/' + iso2.toLowerCase() + '.png' : '';
-      panelBody.innerHTML = '<div class="loading">Memuat data live...</div>';
-      lastPanelCtx = { name: name, iso2: iso2, iso3: iso3, centroid: centroid };
-      await loadPanelData(name, iso2, iso3, centroid);
-    }
-
-    async function loadPanelData(name, iso2, iso3, centroid) {
-      var results = await Promise.all([
-        fetchCountryInfo(iso2, iso3, name),
-        centroid ? fetchWeather(centroid[1], centroid[0]) : null,
-        fetchEarthquakes(centroid ? centroid[1] : null, centroid ? centroid[0] : null, name),
-        fetchVolcanoes(centroid ? centroid[1] : null, centroid ? centroid[0] : null, name),
-        fetchNews(name, iso2),
-        centroid ? fetchExtremeWeather(centroid[1], centroid[0]) : null
-      ]);
-      renderPanel(name, results[0], results[1], results[2], results[3], results[4], results[5], centroid, iso2);
-    }
-
-    window.refreshPanel = async function() {
-      if (!lastPanelCtx) return;
-      panelBody.innerHTML = '<div class="loading">Memperbarui data...</div>';
-      await loadPanelData(lastPanelCtx.name, lastPanelCtx.iso2, lastPanelCtx.iso3, lastPanelCtx.centroid);
-    };
-
-    async function fetchCountryInfo(iso2, iso3, name) {
-      try {
-        var url;
-        if (iso2 && iso2 !== '-99') url = 'https://restcountries.com/v3.1/alpha/' + iso2;
-        else if (iso3) url = 'https://restcountries.com/v3.1/alpha/' + iso3;
-        else url = 'https://restcountries.com/v3.1/name/' + encodeURIComponent(name) + '?fullText=true';
-        var res = await fetch(url);
-        if (!res.ok) throw new Error('not found');
-        var data = await res.json();
-        return Array.isArray(data) ? data[0] : data;
-      } catch (e) { return null; }
-    }
-
-    async function fetchWeather(lat, lng) {
-      try {
-        var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
-          '&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day,apparent_temperature&timezone=auto';
-        var res = await fetch(url);
-        if (!res.ok) return null;
-        return await res.json();
-      } catch (e) { return null; }
-    }
-
-    async function fetchExtremeWeather(lat, lng) {
-      try {
-        var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
-          '&current=temperature_2m,wind_speed_10m,weather_code,precipitation&timezone=auto';
-        var res = await fetch(url);
-        if (!res.ok) return [];
-        var data = await res.json();
-        var alerts = [];
-        var c = data.current || {};
-        if (c.wind_speed_10m > 60) alerts.push({ type: 'Angin Kencang', level: 'Waspada', desc: 'Angin ' + Math.round(c.wind_speed_10m) + ' km/h' });
-        if (c.precipitation > 20) alerts.push({ type: 'Hujan Lebat', level: 'Waspada', desc: 'Curah hujan tinggi / Banjir' });
-        if (c.weather_code >= 95) alerts.push({ type: 'Badai Petir', level: 'Siaga', desc: 'Potensi petir kuat' });
-        return alerts;
-      } catch (e) { return []; }
-    }
-
-    async function fetchEarthquakes(lat, lng, countryName) {
-      var bmkg = liveQuakeData.filter(q => q.source.includes('BMKG'));
-      var emsc = liveQuakeData.filter(q => q.source.includes('EMSC'));
-      return { bmkg: bmkg, usgs: emsc, primary: 'BMKG + EMSC' };
-    }
-
-    function updateGlobalStatsDashboard(earthquakes) {
-      var emscList = (earthquakes && earthquakes.usgs) ? earthquakes.usgs : [];
-      var bmkgList = (earthquakes && earthquakes.bmkg) ? earthquakes.bmkg : [];
-      var totalCount = emscList.length + bmkgList.length;
-
-      var countElem = document.getElementById('statEarthquakeCount');
-      if (countElem) countElem.textContent = totalCount > 0 ? totalCount : '15';
-      
-      var htmlList = '<ul class="event-list">';
-      var combined = bmkgList.concat(emscList).slice(0, 10);
-      combined.forEach(function(q) {
-        htmlList += '<li><div class="event-icon">🌋</div><div><div class="event-title">M<span class="badge badge-mag">' +
-          Number(q.mag).toFixed(1) + '</span> ' + (q.place || '') + '</div>' +
-          '<div class="event-meta">Sumber: ' + q.source + ' · ' + (q.timeStr || '') + ' · Kedalaman ' + (q.depth || '-') + '</div></div></li>';
-      });
-      htmlList += '</ul>';
-      var statsListElem = document.getElementById('globalStatsList');
-      if (statsListElem) statsListElem.innerHTML = htmlList;
-    }
-
-    async function fetchVolcanoes(lat, lng, countryName) {
-      return [
-        { name: 'Anak Krakatau', location: 'Lampung', level: 'III (Siaga)' },
-        { name: 'Merapi', location: 'DIY & Jawa Tengah', level: 'III (Siaga)' },
-        { name: 'Semeru', location: 'Jawa Timur', level: 'III (Siaga)' }
-      ];
-    }
-
-    async function fetchNews(countryName, iso2) { return []; }
-
-    function weatherCodeToEmoji(code, isDay) {
-      if (code === 0) return isDay ? '☀️' : '🌙';
-      if (code <= 2) return isDay ? '⛅' : '☁️';
-      if (code === 3) return '☁️';
-      if (code >= 51 && code <= 67) return '🌧️';
-      if (code >= 95) return '🌩️';
-      return '🌤️';
-    }
-
-    function weatherCodeToText(code) {
-      var map = {
-        0: 'Cerah', 1: 'Sebagian cerah', 2: 'Berawan sebagian', 3: 'Mendung',
-        51: 'Gerimis ringan', 63: 'Hujan', 65: 'Hujan lebat (Banjir)',
-        95: 'Badai petir'
-      };
-      return map[code] || 'Cuaca';
-    }
-
-    function formatNumber(n) {
-      if (n == null) return '-';
-      return new Intl.NumberFormat('id-ID').format(n);
-    }
-
-    function getEmergencyNumbers(iso2) {
-      if (iso2 === 'ID') {
-        return [
-          { num: '112', label: 'Darurat Nasional' },
-          { num: '113', label: 'Pemadam' },
-          { num: '118', label: 'Ambulans' },
-          { num: '123', label: 'PLN (Listrik)' }
-        ];
-      }
-      return [{ num: '112', label: 'Darurat' }, { num: '911', label: 'Emergency' }];
-    }
-
-    function renderPanel(name, info, weather, earthquakes, volcanoes, news, alerts, centroid, iso2) {
-      var nowStr = new Date().toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-      var html = '<div class="refresh-row"><div class="last-update">Diperbarui: ' + nowStr + '</div><button class="refresh-btn" onclick="refreshPanel()">Refresh</button></div>';
-
-      if (info) {
-        var capital = info.capital ? info.capital.join(', ') : '-';
-        var region = [info.region, info.subregion].filter(Boolean).join(' · ') || '-';
-        html += '<div class="section"><div class="section-title">Informasi Negara</div><div class="info-grid">' +
-          '<div class="info-item"><div class="label">Ibu Kota</div><div class="value">' + capital + '</div></div>' +
-          '<div class="info-item"><div class="label">Wilayah</div><div class="value">' + region + '</div></div>' +
-          '<div class="info-item"><div class="label">Populasi</div><div class="value">' + formatNumber(info.population) + '</div></div>' +
-          '<div class="info-item"><div class="label">Luas</div><div class="value">' + (info.area ? formatNumber(info.area) + ' km²' : '-') + '</div></div></div></div>';
-      }
-
-      if (weather && weather.current) {
-        var c = weather.current;
-        html += '<div class="section"><div class="section-title">Cuaca & Banjir <span class="live-badge"><span class="live-dot"></span> LIVE</span></div>' +
-          '<div class="weather-box"><div class="weather-icon">' + weatherCodeToEmoji(c.weather_code, c.is_day) + '</div><div>' +
-          '<div class="weather-temp">' + Math.round(c.temperature_2m) + '°C</div>' +
-          '<div class="weather-desc">' + weatherCodeToText(c.weather_code) + ' · Angin ' + Math.round(c.wind_speed_10m) + ' km/h</div>' +
-          '<div class="weather-meta">Open-Meteo API</div></div></div></div>';
-      }
-
-      if (alerts && alerts.length > 0) {
-        html += '<div class="section"><div class="section-title">Peringatan Dini Cuaca Ekstrem</div><ul class="event-list">';
-        alerts.forEach(function(a) {
-          html += '<li><div class="event-icon">⚠️</div><div><div class="event-title">' + a.type + ' <span class="badge badge-alert">' + a.level + '</span></div><div class="event-meta">' + a.desc + '</div></div></li>';
-        });
-        html += '</ul></div>';
-      }
-
-      html += '<div class="section"><div class="section-title">Gempa Bumi (BMKG Real-Time) <span class="live-badge"><span class="live-dot"></span> LIVE</span></div>';
-      var bmkgList = (earthquakes && earthquakes.bmkg) ? earthquakes.bmkg : [];
-
-      if (bmkgList.length > 0) {
-        html += '<ul class="event-list">';
-        bmkgList.slice(0, 4).forEach(function(q) {
-          html += '<li><div class="event-icon">🌐</div><div><div class="event-title">M<span class="badge badge-mag">' + Number(q.mag).toFixed(1) + '</span> ' + q.place + '</div>' +
-            '<div class="event-meta">Waktu: ' + q.timeStr + ' · Kedalaman ' + (q.depth || '-') + (q.potensi ? ' · ' + q.potensi : '') + '</div></div></li>';
-        });
-        html += '</ul>';
-      } else {
-        html += '<div style="font-size:0.75rem;color:#6a7a90;">Menghubungkan ke jaringan sensor BMKG...</div>';
-      }
-      html += '</div>';
-
-      var emerg = getEmergencyNumbers(iso2);
-      html += '<div class="section"><div class="section-title">Nomor Darurat</div><div class="emergency-numbers">';
-      emerg.forEach(function(e) {
-        html += '<div class="emergency-item"><div class="num">' + e.num + '</div><div class="label">' + e.label + '</div></div>';
-      });
-      html += '</div></div>';
-
-      panelBody.innerHTML = html;
-    }
-
-    document.getElementById('btnRotate').onclick = function() {
-      autoRotate = !autoRotate;
-      if (world) world.controls().autoRotate = autoRotate;
-      this.classList.toggle('active', autoRotate);
-    };
-
-    document.getElementById('btnDayNight').onclick = function() {
-      dayNightMode = !dayNightMode;
-      this.classList.toggle('active', dayNightMode);
-      if (world) world.globeImageUrl(dayNightMode ? EARTH_NIGHT : EARTH_DAY);
-    };
-
-    document.getElementById('btnReset').onclick = function() {
-      selectedFeature = null;
-      if (world) {
-        world.polygonsData(countriesData);
-        world.pointOfView({ lat: -2.5, lng: 118, altitude: 2.2 }, 1000);
-      }
-      panel.classList.remove('open');
-    };
-
-    setInterval(function() {
-      var now = new Date();
-      document.getElementById('timeText').textContent = now.toLocaleString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-    }, 30000);
-    document.getElementById('timeText').textContent = new Date().toLocaleString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-
-    var searchInput = document.getElementById('searchInput');
-    var searchResults = document.getElementById('searchResults');
-    var searchBox = document.getElementById('searchBox');
-
-    searchInput.addEventListener('input', function() {
-      var q = searchInput.value.trim().toLowerCase();
-      if (q.length < 2) {
-        searchResults.style.display = 'none';
-        return;
-      }
-      var matches = countriesData.filter(function(f) {
-        var p = f.properties;
-        return (p.ADMIN && p.ADMIN.toLowerCase().indexOf(q) >= 0) || (p.ISO_A2 && p.ISO_A2.toLowerCase() === q);
-      }).slice(0, 8);
-
-      if (matches.length === 0) {
-        searchResults.innerHTML = '<div style="padding:10px;color:#6a7a90">Tidak ditemukan</div>';
-      } else {
-        searchResults.innerHTML = matches.map(function(f) {
-          var p = f.properties;
-          return '<div data-iso="' + (p.ISO_A2 || '') + '">' + (p.ADMIN || p.NAME) + '</div>';
-        }).join('');
-        var divs = searchResults.querySelectorAll('div[data-iso]');
-        for (var i = 0; i < divs.length; i++) {
-          divs[i].onclick = function() {
-            var iso = this.getAttribute('data-iso');
-            var feat = countryIndex[iso];
-            if (feat) {
-              handleCountryClick(feat);
-              searchInput.value = '';
-              searchResults.style.display = 'none';
-            }
-          };
-        }
-      }
-      searchResults.style.display = 'block';
+  }
+  function popup(r){
+    return `<b>${esc(r.label)}</b><br>${esc(r.location)}<br>${[r.district,r.city,r.province].filter(Boolean).map(esc).join(', ')}<br>${r.postalCode?'Kode pos: '+esc(r.postalCode)+'<br>':''}${r.time?'Waktu: '+esc(r.time)+'<br>':''}${r.description?esc(r.description)+'<br>':''}<small>Sumber: ${esc(r.source)}</small>`;
+  }
+  function render(){
+    clusters.clearLayers();
+    const rows=allReports.filter(r=>activeFilter==='all'||r.status===activeFilter);
+    rows.forEach(r=>{
+      if(!Number.isFinite(r.lat)||!Number.isFinite(r.lng)||Math.abs(r.lat)>90||Math.abs(r.lng)>180)return;
+      const c=r.status==='confirmed'?'#ff647d':r.status==='planned'?'#4668ee':'#ffbd4a';
+      const marker=L.circleMarker([r.lat,r.lng],{radius:9,color:c,weight:3,fillColor:c,fillOpacity:.65});
+      marker.bindPopup(popup(r)); clusters.addLayer(marker);
     });
-
-    document.addEventListener('click', function(e) {
-      if (!searchBox.contains(e.target)) searchResults.style.display = 'none';
-    });
-
-    window.addEventListener('resize', function() {
-      if (world) world.width(window.innerWidth).height(window.innerHeight);
-    });
-
-    // ========== AI Assistant ==========
-    var aiFab = document.getElementById('aiFab');
-    var aiChat = document.getElementById('aiChat');
-    var aiClose = document.getElementById('aiClose');
-    var aiMessages = document.getElementById('aiMessages');
-    var aiInput = document.getElementById('aiInput');
-    var aiSend = document.getElementById('aiSend');
-
-    aiFab.onclick = function() { aiChat.classList.toggle('open'); };
-    aiClose.onclick = function() { aiChat.classList.remove('open'); };
-
-    function cleanMarkdown(text) {
-      if (!text) return '';
-      return text.replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').replace(/^#{1,6}\s*/gm, '').trim();
+    document.getElementById('countAll').textContent=allReports.length;
+    document.getElementById('countActive').textContent=allReports.filter(r=>r.status==='confirmed').length;
+    document.getElementById('countPlanned').textContent=allReports.filter(r=>r.status==='planned').length;
+    const list=document.getElementById('reportList');
+    if(!rows.length){list.innerHTML='<div class="empty">Belum ada laporan pada kategori ini dari sumber data yang tersambung.</div>';return;}
+    list.innerHTML=rows.slice(0,100).map(r=>`<article class="report"><div class="reporthead"><b>${esc(r.location)}</b><span class="status ${r.status}">${esc(r.label)}</span></div><div class="meta">${[r.district,r.city,r.province].filter(Boolean).map(esc).join(', ')||'Wilayah belum dirinci'}${r.postalCode?' • Kode pos '+esc(r.postalCode):''}</div><div class="meta">${r.time?'Waktu: '+esc(r.time)+' • ':''}Sumber: ${esc(r.source)}</div>${r.description?`<div class="meta">${esc(r.description)}</div>`:''}<div style="margin-top:8px"><button class="btn secondary" data-lat="${r.lat}" data-lng="${r.lng}">Lihat titik di peta</button></div></article>`).join('');
+    list.querySelectorAll('button[data-lat]').forEach(b=>b.addEventListener('click',()=>{const lat=Number(b.dataset.lat),lng=Number(b.dataset.lng);if(Number.isFinite(lat)&&Number.isFinite(lng)){map.setView([lat,lng],14);}}));
+  }
+  async function loadOutages(){
+    const notice=document.getElementById('sourceNotice');
+    try{
+      const res=await fetch('/api/outages',{cache:'no-store'});
+      const data=await res.json();
+      if(!res.ok) throw new Error(data.error||'Sumber data tidak tersedia');
+      const arr=Array.isArray(data)?data:(data.reports||data.data||[]);
+      allReports=arr.map(normalizeReport);
+      render();
+      const src=data.source||'API laporan yang dikonfigurasi';
+      notice.className='notice '+(allReports.length?'ok':'warn');
+      notice.textContent=allReports.length
+        ? `Sumber: ${src}. ${allReports.length} laporan diterima. Titik tanpa koordinat tidak dapat ditampilkan pada peta.`
+        : 'Sumber API tersambung, tetapi belum ada laporan yang dikirim. Tidak ada titik palsu yang ditampilkan.';
+    }catch(e){
+      allReports=[];render();
+      notice.className='notice warn';
+      notice.textContent='Radar belum menerima data pemadaman: '+e.message+'. Hubungkan API laporan yang sah melalui LISTRIK_PADAM_API_URL di pengaturan server.';
     }
-
-    function addMsg(text, isUser) {
-      var div = document.createElement('div');
-      div.className = 'ai-msg ' + (isUser ? 'user' : 'bot');
-      var cleanText = isUser ? text : cleanMarkdown(text);
-      div.textContent = cleanText;
-      aiMessages.appendChild(div);
-      aiMessages.scrollTop = aiMessages.scrollHeight;
-    }
-
-    async function askGroq(question) {
-      try {
-        var res = await fetch('/api/assistant', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question: question })
-        });
-        var data = await res.json();
-        if (!res.ok) return data.error || 'Asisten AI belum dikonfigurasi.';
-        return data.answer || 'Tidak ada jawaban.';
-      } catch (e) {
-        return 'Gagal menghubungi asisten: ' + e.message;
+  }
+  document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{activeFilter=b.dataset.filter;render();}));
+  async function searchPostal(){
+    const q=document.getElementById('postalQuery').value.trim(),out=document.getElementById('postalResult');
+    if(!q){out.innerHTML='<div class="notice warn">Masukkan kode pos atau nama kecamatan.</div>';return;}
+    out.innerHTML='<div class="notice">Mencari data wilayah dan koordinat…</div>';
+    try{
+      const res=await fetch('/api/postal/search?q='+encodeURIComponent(q));
+      const data=await res.json();
+      if(!res.ok)throw new Error(data.error||'Data tidak ditemukan');
+      out.innerHTML=`<div class="notice ok">Ditemukan ${data.count} data wilayah.</div>`+
+        data.results.map(r=>`<article class="report"><b>${esc(r.code)}</b> — ${esc(r.district)}<div class="meta">${esc(r.administrativeType)} ${esc(r.city)}, ${esc(r.province)}</div></article>`).join('')+
+        `<div class="notice ${data.location?'ok':'warn'}">${data.location?'Koordinat kecamatan ditemukan.':'Data kode pos ditemukan, tetapi koordinat belum tersedia.'} ${esc(data.locationAccuracy||'')}</div>`;
+      if(data.location&&Number.isFinite(Number(data.location.lat))&&Number.isFinite(Number(data.location.lng))){
+        const {lat,lng}=data.location;map.setView([lat,lng],13);
+        L.marker([lat,lng]).addTo(map).bindPopup(`<b>${esc(data.results[0].district)}</b><br>${esc(data.results[0].city)}<br>Titik representasi kecamatan`).openPopup();
       }
-    }
-
-    async function handleAISend() {
-      var q = aiInput.value.trim();
-      if (!q) return;
-      addMsg(q, true);
-      aiInput.value = '';
-      addMsg('Mencari informasi...', false);
-      var answer = await askGroq(q);
-      var msgs = aiMessages.querySelectorAll('.ai-msg.bot');
-      if (msgs.length) msgs[msgs.length - 1].remove();
-      addMsg(answer, false);
-    }
-
-    aiSend.onclick = handleAISend;
-    aiInput.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') handleAISend();
-    });
-  </script>
+    }catch(e){out.innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;}
+  }
+  document.getElementById('searchBtn').addEventListener('click',searchPostal);
+  document.getElementById('postalQuery').addEventListener('keydown',e=>{if(e.key==='Enter')searchPostal();});
+  loadOutages();
+  setInterval(loadOutages,60000);
+})();
+</script>
 </body>
 </html>
